@@ -4,11 +4,10 @@ import {
   Chart as ChartJS, 
   ArcElement, 
   Tooltip, 
-  Legend, 
+  Legend,
   ChartData, 
   ChartOptions,
-  PieController,
-  ChartTypeRegistry
+  PieController
 } from 'chart.js';
 import { Investor } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -106,11 +105,12 @@ export default function CategoryDistribution({ investors }: CategoryDistribution
     const ctx = chartRef.current.getContext('2d');
     
     if (ctx) {
+      // Use a type assertion to resolve the type compatibility issue
       chartInstance.current = new ChartJS(ctx, {
         type: 'pie',
         data: chartData,
         options: chartOptions
-      });
+      }) as ChartJS;
     }
     
     return () => {
