@@ -74,7 +74,6 @@ export default function FileUpload({ onDataLoaded }: FileUploadProps) {
             />
             <div className="flex flex-col gap-2 items-center">
               <Button 
-                as="span" 
                 className="w-full cursor-pointer bg-dashboard-teal hover:bg-dashboard-teal/80"
               >
                 {isUploading ? "Processing..." : "Select Excel File"}

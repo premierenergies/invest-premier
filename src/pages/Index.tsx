@@ -3,8 +3,6 @@ import Dashboard from "@/components/Dashboard";
 import { useToast } from "@/components/ui/use-toast";
 import { useEffect } from "react";
 import { Toaster } from "@/components/ui/sonner";
-import { ArrowLeft, ArrowRight } from "lucide-react";
-import { Button } from "@/components/ui/button";
 
 const Index = () => {
   const { toast } = useToast();
