@@ -53,14 +53,14 @@ export default function InvestorTable({ investors, categories, filters, onFilter
         
         <div className="flex gap-2 w-full sm:w-auto">
           <Select
-            value={filters.category || ""}
-            onValueChange={(value) => onFilterChange({ category: value === "" ? null : value })}
+            value={filters.category || "all"}
+            onValueChange={(value) => onFilterChange({ category: value === "all" ? null : value })}
           >
             <SelectTrigger className="w-full sm:w-[180px]">
               <SelectValue placeholder="All Categories" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All Categories</SelectItem>
+              <SelectItem value="all">All Categories</SelectItem>
               {categories.map((category) => (
                 <SelectItem key={category} value={category}>
                   {category}
