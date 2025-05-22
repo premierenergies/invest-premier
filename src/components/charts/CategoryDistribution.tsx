@@ -1,10 +1,10 @@
 
 import { useEffect, useRef } from 'react';
-import { Chart, registerables } from 'chart.js';
+import { Chart as ChartJS, ArcElement, Tooltip, Legend, ChartData, ChartOptions } from 'chart.js';
 import { Investor } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
-Chart.register(...registerables);
+ChartJS.register(ArcElement, Tooltip, Legend);
 
 interface CategoryDistributionProps {
   investors: Investor[];
@@ -12,7 +12,7 @@ interface CategoryDistributionProps {
 
 export default function CategoryDistribution({ investors }: CategoryDistributionProps) {
   const chartRef = useRef<HTMLCanvasElement | null>(null);
-  const chartInstance = useRef<Chart | null>(null);
+  const chartInstance = useRef<ChartJS | null>(null);
 
   useEffect(() => {
     if (!chartRef.current || !investors.length) return;
@@ -47,49 +47,54 @@ export default function CategoryDistribution({ investors }: CategoryDistribution
       'rgba(236, 72, 153, 0.7)',  // Pink
     ];
 
+    // Create chart data and options with proper typing
+    const chartData: ChartData<'pie', number[], string> = {
+      labels,
+      datasets: [
+        {
+          data,
+          backgroundColor: backgroundColors.slice(0, labels.length),
+          borderColor: 'white',
+          borderWidth: 1
+        }
+      ]
+    };
+
+    const chartOptions: ChartOptions<'pie'> = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'right',
+          labels: {
+            padding: 20,
+            usePointStyle: true,
+            pointStyle: 'circle'
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              const value = context.raw as number;
+              const total = (context.chart.data.datasets[0].data as number[]).reduce(
+                (sum, val) => sum + val, 0
+              );
+              const percentage = Math.round((value / total) * 100);
+              return `${context.label}: ${value} (${percentage}%)`;
+            }
+          }
+        }
+      }
+    };
+
     // Create chart
     const ctx = chartRef.current.getContext('2d');
     
     if (ctx) {
-      chartInstance.current = new Chart(ctx, {
+      chartInstance.current = new ChartJS(ctx, {
         type: 'pie',
-        data: {
-          labels,
-          datasets: [
-            {
-              data,
-              backgroundColor: backgroundColors.slice(0, labels.length),
-              borderColor: 'white',
-              borderWidth: 1
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: {
-              position: 'right',
-              labels: {
-                padding: 20,
-                usePointStyle: true,
-                pointStyle: 'circle'
-              }
-            },
-            tooltip: {
-              callbacks: {
-                label: function(context) {
-                  const value = context.raw as number;
-                  const total = context.chart.data.datasets[0].data.reduce(
-                    (sum: number, val: number) => sum + val, 0
-                  );
-                  const percentage = Math.round((value / total) * 100);
-                  return `${context.label}: ${value} (${percentage}%)`;
-                }
-              }
-            }
-          }
-        }
+        data: chartData,
+        options: chartOptions
       });
     }
     

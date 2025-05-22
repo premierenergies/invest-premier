@@ -1,10 +1,18 @@
 
 import { useEffect, useRef } from 'react';
-import { Chart, registerables } from 'chart.js';
-import { Investor } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, ChartData, ChartOptions } from 'chart.js';
+import { Investor } from '@/types';
 
-Chart.register(...registerables);
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend
+);
 
 interface TrendAnalysisProps {
   investors: Investor[];
@@ -12,7 +20,7 @@ interface TrendAnalysisProps {
 
 export default function TrendAnalysis({ investors }: TrendAnalysisProps) {
   const chartRef = useRef<HTMLCanvasElement | null>(null);
-  const chartInstance = useRef<Chart | null>(null);
+  const chartInstance = useRef<ChartJS | null>(null);
 
   useEffect(() => {
     if (!chartRef.current || !investors.length) return;
@@ -22,84 +30,76 @@ export default function TrendAnalysis({ investors }: TrendAnalysisProps) {
       chartInstance.current.destroy();
     }
 
-    // Group investors by category and calculate total position changes
-    const categoryData: Record<string, { bought: number; sold: number }> = {};
+    // Group investors by category
+    const categories = [...new Set(investors.map(investor => investor.category))];
     
-    investors.forEach(investor => {
-      const category = investor.category || 'Unknown';
+    // Create datasets for each category
+    const datasets = categories.map((category, index) => {
+      const categoryInvestors = investors.filter(investor => investor.category === category);
+      const totalBought = categoryInvestors.reduce((sum, investor) => sum + investor.boughtOn18, 0);
+      const totalSold = categoryInvestors.reduce((sum, investor) => sum + investor.soldOn25, 0);
       
-      if (!categoryData[category]) {
-        categoryData[category] = { bought: 0, sold: 0 };
-      }
+      // Color palette
+      const colors = [
+        'rgba(6, 182, 212, 0.7)',   // Teal
+        'rgba(59, 130, 246, 0.7)',  // Blue
+        'rgba(16, 185, 129, 0.7)',  // Green
+        'rgba(245, 158, 11, 0.7)',  // Amber
+        'rgba(239, 68, 68, 0.7)',   // Red
+        'rgba(168, 85, 247, 0.7)',  // Purple
+        'rgba(236, 72, 153, 0.7)',  // Pink
+      ];
       
-      categoryData[category].bought += investor.boughtOn18;
-      categoryData[category].sold += investor.soldOn25;
+      return {
+        label: category,
+        data: [totalBought, totalSold],
+        borderColor: colors[index % colors.length],
+        backgroundColor: colors[index % colors.length].replace('0.7', '0.1'),
+        borderWidth: 2,
+        tension: 0.4,
+        fill: true,
+      };
     });
 
-    // Prepare data for chart
-    const labels = Object.keys(categoryData);
-    const boughtData = labels.map(cat => categoryData[cat].bought);
-    const soldData = labels.map(cat => categoryData[cat].sold);
+    const chartData: ChartData<'line', number[], string> = {
+      labels: ['April 18, 2025', 'April 25, 2025'],
+      datasets
+    };
+
+    const chartOptions: ChartOptions<'line'> = {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: {
+          beginAtZero: true,
+          title: {
+            display: true,
+            text: 'Volume'
+          }
+        }
+      },
+      plugins: {
+        legend: {
+          position: 'top',
+        },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              return `${context.dataset.label}: ${context.parsed.y.toLocaleString()}`;
+            }
+          }
+        }
+      }
+    };
 
     // Create chart
     const ctx = chartRef.current.getContext('2d');
     
     if (ctx) {
-      chartInstance.current = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels,
-          datasets: [
-            {
-              label: '18/04/2025 Position',
-              data: boughtData,
-              backgroundColor: 'rgba(59, 130, 246, 0.7)', // Blue
-              borderColor: 'rgb(59, 130, 246)',
-              borderWidth: 1
-            },
-            {
-              label: '25/04/2025 Position',
-              data: soldData,
-              backgroundColor: 'rgba(16, 185, 129, 0.7)', // Green
-              borderColor: 'rgb(16, 185, 129)',
-              borderWidth: 1
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: {
-              position: 'top',
-            },
-            tooltip: {
-              callbacks: {
-                label: function(context) {
-                  const value = context.raw as number;
-                  return `${context.dataset.label}: ${value.toLocaleString()}`;
-                }
-              }
-            }
-          },
-          scales: {
-            x: {
-              grid: {
-                display: false
-              }
-            },
-            y: {
-              grid: {
-                color: 'rgba(0, 0, 0, 0.05)'
-              },
-              ticks: {
-                callback: function(value) {
-                  return (value as number).toLocaleString();
-                }
-              }
-            }
-          }
-        }
+      chartInstance.current = new ChartJS(ctx, {
+        type: 'line',
+        data: chartData,
+        options: chartOptions
       });
     }
     
@@ -112,9 +112,9 @@ export default function TrendAnalysis({ investors }: TrendAnalysisProps) {
 
   if (!investors.length) {
     return (
-      <Card>
+      <Card className="col-span-3">
         <CardHeader>
-          <CardTitle>Position Trends by Category</CardTitle>
+          <CardTitle>Trend Analysis</CardTitle>
           <CardDescription>
             No data available. Please upload investor data.
           </CardDescription>
@@ -124,15 +124,15 @@ export default function TrendAnalysis({ investors }: TrendAnalysisProps) {
   }
 
   return (
-    <Card>
+    <Card className="col-span-3">
       <CardHeader>
-        <CardTitle>Position Trends by Category</CardTitle>
+        <CardTitle>Trend Analysis</CardTitle>
         <CardDescription>
-          Comparison of positions between dates by category
+          Weekly trend of investment positions by category
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="h-[300px]">
+        <div className="h-[400px]">
           <canvas ref={chartRef} />
         </div>
       </CardContent>

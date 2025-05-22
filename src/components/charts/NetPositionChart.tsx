@@ -1,10 +1,10 @@
 
 import { useEffect, useRef } from 'react';
-import { Chart, registerables } from 'chart.js';
-import { Investor } from '@/types';
+import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ChartData, ChartOptions } from 'chart.js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Investor } from '@/types';
 
-Chart.register(...registerables);
+ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
 interface NetPositionChartProps {
   investors: Investor[];
@@ -12,7 +12,7 @@ interface NetPositionChartProps {
 
 export default function NetPositionChart({ investors }: NetPositionChartProps) {
   const chartRef = useRef<HTMLCanvasElement | null>(null);
-  const chartInstance = useRef<Chart | null>(null);
+  const chartInstance = useRef<ChartJS | null>(null);
 
   useEffect(() => {
     if (!chartRef.current || !investors.length) return;
@@ -22,73 +22,66 @@ export default function NetPositionChart({ investors }: NetPositionChartProps) {
       chartInstance.current.destroy();
     }
 
-    // Sort investors by net change for better visualization
-    const sortedInvestors = [...investors]
-      .sort((a, b) => (a.netChange || 0) - (b.netChange || 0))
-      .slice(0, 15); // Show top/bottom 15 for readability
+    // Calculate total bought and sold
+    const totalBought = investors.reduce((sum, investor) => sum + investor.boughtOn18, 0);
+    const totalSold = investors.reduce((sum, investor) => sum + investor.soldOn25, 0);
+    const netChange = totalSold - totalBought;
 
-    // Prepare data for chart
-    const labels = sortedInvestors.map(investor => investor.name);
-    const data = sortedInvestors.map(investor => investor.netChange || 0);
-    const backgroundColors = data.map(value => 
-      value > 0 ? 'rgba(16, 185, 129, 0.7)' : 'rgba(239, 68, 68, 0.7)'
-    );
+    const chartData: ChartData<'bar', number[], string> = {
+      labels: ['Bought', 'Sold', 'Net Position'],
+      datasets: [
+        {
+          label: 'Volume',
+          data: [totalBought, totalSold, netChange],
+          backgroundColor: [
+            'rgba(16, 185, 129, 0.7)', // Green
+            'rgba(239, 68, 68, 0.7)',   // Red
+            netChange >= 0 ? 'rgba(59, 130, 246, 0.7)' : 'rgba(245, 158, 11, 0.7)' // Blue or Amber
+          ],
+          borderColor: [
+            'rgb(16, 185, 129)',
+            'rgb(239, 68, 68)',
+            netChange >= 0 ? 'rgb(59, 130, 246)' : 'rgb(245, 158, 11)'
+          ],
+          borderWidth: 1
+        }
+      ]
+    };
+
+    const chartOptions: ChartOptions<'bar'> = {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: {
+          beginAtZero: true,
+          title: {
+            display: true,
+            text: 'Volume'
+          }
+        }
+      },
+      plugins: {
+        legend: {
+          display: false
+        },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              return `Volume: ${context.raw.toLocaleString()}`;
+            }
+          }
+        }
+      }
+    };
 
     // Create chart
     const ctx = chartRef.current.getContext('2d');
     
     if (ctx) {
-      chartInstance.current = new Chart(ctx, {
+      chartInstance.current = new ChartJS(ctx, {
         type: 'bar',
-        data: {
-          labels,
-          datasets: [
-            {
-              label: 'Net Position Change',
-              data,
-              backgroundColor: backgroundColors,
-              borderColor: backgroundColors.map(color => color.replace('0.7', '1')),
-              borderWidth: 1
-            }
-          ]
-        },
-        options: {
-          indexAxis: 'y',
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: {
-              display: false,
-            },
-            tooltip: {
-              callbacks: {
-                label: function(context) {
-                  const value = context.raw as number;
-                  return `Net change: ${value.toLocaleString()}`;
-                }
-              }
-            }
-          },
-          scales: {
-            x: {
-              grid: {
-                display: false
-              }
-            },
-            y: {
-              grid: {
-                display: false
-              },
-              ticks: {
-                callback: function(val, index) {
-                  const label = this.getLabelForValue(val as number);
-                  // Truncate long names
-                  return label.length > 15 ? label.substring(0, 15) + '...' : label;
-                }
-              }
-            }
-          }
-        }
+        data: chartData,
+        options: chartOptions
       });
     }
     
@@ -101,9 +94,9 @@ export default function NetPositionChart({ investors }: NetPositionChartProps) {
 
   if (!investors.length) {
     return (
-      <Card className="col-span-1 lg:col-span-2">
+      <Card>
         <CardHeader>
-          <CardTitle>Net Position Changes</CardTitle>
+          <CardTitle>Net Position</CardTitle>
           <CardDescription>
             No data available. Please upload investor data.
           </CardDescription>
@@ -113,15 +106,15 @@ export default function NetPositionChart({ investors }: NetPositionChartProps) {
   }
 
   return (
-    <Card className="col-span-1 lg:col-span-2">
+    <Card>
       <CardHeader>
-        <CardTitle>Net Position Changes</CardTitle>
+        <CardTitle>Net Position</CardTitle>
         <CardDescription>
-          Top gainers and sellers by position change
+          Comparison of total bought vs sold positions
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="h-[400px]">
+        <div className="h-[300px]">
           <canvas ref={chartRef} />
         </div>
       </CardContent>

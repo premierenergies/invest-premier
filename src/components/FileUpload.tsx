@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { parseExcelFile, saveInvestorsData } from "@/utils/dataUtils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ interface FileUploadProps {
 export default function FileUpload({ onDataLoaded }: FileUploadProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -52,6 +53,11 @@ export default function FileUpload({ onDataLoaded }: FileUploadProps) {
     }
   };
 
+  const handleButtonClick = () => {
+    // Trigger the hidden file input when the button is clicked
+    fileInputRef.current?.click();
+  };
+
   return (
     <div className="p-6 bg-white rounded-lg shadow-sm border">
       <div className="flex flex-col items-center space-y-4">
@@ -64,27 +70,28 @@ export default function FileUpload({ onDataLoaded }: FileUploadProps) {
         </p>
         
         <div className="w-full max-w-sm mt-4">
-          <label htmlFor="file-upload" className="block">
-            <Input
-              id="file-upload"
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={handleFileUpload}
-              className="hidden"
-            />
-            <div className="flex flex-col gap-2 items-center">
-              <Button 
-                className="w-full cursor-pointer bg-dashboard-teal hover:bg-dashboard-teal/80"
-              >
-                {isUploading ? "Processing..." : "Select Excel File"}
-              </Button>
-              {fileName && (
-                <p className="text-sm text-dashboard-gray">
-                  Selected: {fileName}
-                </p>
-              )}
-            </div>
-          </label>
+          <Input
+            id="file-upload"
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            onChange={handleFileUpload}
+            className="hidden"
+          />
+          <div className="flex flex-col gap-2 items-center">
+            <Button 
+              type="button"
+              onClick={handleButtonClick}
+              className="w-full cursor-pointer bg-dashboard-teal hover:bg-dashboard-teal/80"
+            >
+              {isUploading ? "Processing..." : "Select Excel File"}
+            </Button>
+            {fileName && (
+              <p className="text-sm text-dashboard-gray">
+                Selected: {fileName}
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </div>
