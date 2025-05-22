@@ -18,8 +18,8 @@ export const parseExcelFile = async (file: File): Promise<Investor[]> => {
         const investors: Investor[] = json.map((row: any) => {
           // Access columns with the exact column names from Excel
           // Convert values to appropriate types
-          const boughtOn18 = parseFloat(row["AS ON 18/04/2025 BOUGHT"] || 0);
-          const soldOn25 = parseFloat(row["SOLD AS ON 25/04/2025"] || 0);
+          const boughtOn18 = parseFloat(row["BOUGHT"] || 0);
+          const soldOn25 = parseFloat(row["SOLD"] || 0);
           
           return {
             name: row["NAME"] || "Unknown",

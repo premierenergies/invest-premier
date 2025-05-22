@@ -137,6 +137,9 @@ export default function NetPositionChart({ investors }: NetPositionChartProps) {
         <div className="h-[300px]">
           <canvas ref={chartRef} />
         </div>
+        <p className="text-sm text-muted-foreground mt-4">
+          This chart compares the total volume bought as of April 18, 2025 to the total volume sold as of April 25, 2025 across all investors. The net position (third bar) is calculated as the difference between sold and bought volumes, indicating the overall market sentiment (positive means net selling, negative means net buying).
+        </p>
       </CardContent>
     </Card>
   );

@@ -8,6 +8,7 @@ import AnalyticsSummary from "./AnalyticsSummary";
 import NetPositionChart from "./charts/NetPositionChart";
 import CategoryDistribution from "./charts/CategoryDistribution";
 import TrendAnalysis from "./charts/TrendAnalysis";
+import InvestorTrendChart from "./charts/InvestorTrendChart";
 
 export default function Dashboard() {
   const [investors, setInvestors] = useState<Investor[]>([]);
@@ -81,6 +82,8 @@ export default function Dashboard() {
           </div>
           
           <TrendAnalysis investors={investors} />
+          
+          <InvestorTrendChart investors={investors} />
 
           <div className="space-y-4">
             <h2 className="text-2xl font-bold tracking-tight">Investor Data</h2>

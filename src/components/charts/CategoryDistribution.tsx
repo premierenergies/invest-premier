@@ -145,6 +145,9 @@ export default function CategoryDistribution({ investors }: CategoryDistribution
         <div className="h-[300px]">
           <canvas ref={chartRef} />
         </div>
+        <p className="text-sm text-muted-foreground mt-4">
+          This chart shows the distribution of investors across different categories. Each segment represents the number of investors in a specific category, with percentages calculated against the total number of investors. This helps identify which investor types have the highest representation in the dataset.
+        </p>
       </CardContent>
     </Card>
   );

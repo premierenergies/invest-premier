@@ -149,6 +149,9 @@ export default function TrendAnalysis({ investors }: TrendAnalysisProps) {
         <div className="h-[400px]">
           <canvas ref={chartRef} />
         </div>
+        <p className="text-sm text-muted-foreground mt-4">
+          This chart tracks the change in investment positions between April 18, 2025 and April 25, 2025, grouped by investor category. Each line represents a category of investors, showing how their cumulative positions changed over the week. An upward trend indicates increased holdings (buying activity), while a downward trend indicates decreased holdings (selling activity).
+        </p>
       </CardContent>
     </Card>
   );
