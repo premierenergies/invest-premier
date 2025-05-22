@@ -1,10 +1,25 @@
 
 import { useEffect, useRef } from 'react';
-import { Chart as ChartJS, ArcElement, Tooltip, Legend, ChartData, ChartOptions } from 'chart.js';
+import { 
+  Chart as ChartJS, 
+  ArcElement, 
+  Tooltip, 
+  Legend, 
+  ChartData, 
+  ChartOptions,
+  PieController,
+  ChartTypeRegistry
+} from 'chart.js';
 import { Investor } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
-ChartJS.register(ArcElement, Tooltip, Legend);
+// Properly register all required components
+ChartJS.register(
+  ArcElement,
+  Tooltip,
+  Legend,
+  PieController
+);
 
 interface CategoryDistributionProps {
   investors: Investor[];

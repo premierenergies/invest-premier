@@ -1,9 +1,22 @@
 
 import { useEffect, useRef } from 'react';
+import { 
+  Chart as ChartJS, 
+  CategoryScale, 
+  LinearScale, 
+  PointElement, 
+  LineElement, 
+  Title, 
+  Tooltip, 
+  Legend, 
+  ChartData, 
+  ChartOptions,
+  LineController
+} from 'chart.js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, ChartData, ChartOptions } from 'chart.js';
 import { Investor } from '@/types';
 
+// Properly register all required components
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -11,7 +24,8 @@ ChartJS.register(
   LineElement,
   Title,
   Tooltip,
-  Legend
+  Legend,
+  LineController
 );
 
 interface TrendAnalysisProps {
