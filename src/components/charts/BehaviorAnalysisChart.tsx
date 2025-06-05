@@ -152,8 +152,8 @@ export default function BehaviorAnalysisChart({ comparisons }: BehaviorAnalysisC
         </div>
         <p className="text-sm text-muted-foreground mt-4">
           This chart categorizes investors based on their behavior between the two months: 
-          <strong> Buyers</strong> increased their positions significantly (trend change > 1000), 
-          <strong> Sellers</strong> decreased positions significantly (trend change < -1000), 
+          <strong> Buyers</strong> increased their positions significantly (trend change &gt; 1000), 
+          <strong> Sellers</strong> decreased positions significantly (trend change &lt; -1000), 
           <strong> Holders</strong> maintained similar positions, 
           <strong> New Entries</strong> appeared only in the second month, and 
           <strong> Exits</strong> were only present in the first month.
