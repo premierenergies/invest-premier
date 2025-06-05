@@ -6,6 +6,16 @@ export interface Investor {
   percentToEquity: number;
   category: string;
   netChange?: number;
+  fundGroup?: string; // New field for grouping funds
+}
+
+export interface InvestorComparison {
+  name: string;
+  month1: Investor;
+  month2: Investor;
+  behaviorType: 'buyer' | 'seller' | 'holder' | 'new' | 'exited';
+  trendChange: number; // Change in net position between months
+  fundGroup: string;
 }
 
 export interface FilterOptions {
@@ -13,6 +23,7 @@ export interface FilterOptions {
   sortBy: 'name' | 'boughtOn18' | 'soldOn25' | 'percentToEquity' | 'netChange';
   sortOrder: 'asc' | 'desc';
   searchQuery: string;
+  fundGroup: string | null; // New filter for fund groups
 }
 
 export interface ChartData {
@@ -37,4 +48,13 @@ export interface AnalyticsSummary {
   }[];
   topGainer: Investor | null;
   topSeller: Investor | null;
+  monthlyComparison?: {
+    totalInvestorsMonth1: number;
+    totalInvestorsMonth2: number;
+    newInvestors: number;
+    exitedInvestors: number;
+    buyerCount: number;
+    sellerCount: number;
+    holderCount: number;
+  };
 }

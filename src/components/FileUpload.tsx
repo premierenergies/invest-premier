@@ -12,11 +12,15 @@ interface FileUploadProps {
 
 export default function FileUpload({ onDataLoaded }: FileUploadProps) {
   const [isUploading, setIsUploading] = useState(false);
-  const [fileName, setFileName] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [month1File, setMonth1File] = useState<string | null>(null);
+  const [month2File, setMonth2File] = useState<string | null>(null);
+  const [month1Data, setMonth1Data] = useState<any[]>([]);
+  const [month2Data, setMonth2Data] = useState<any[]>([]);
+  const month1InputRef = useRef<HTMLInputElement>(null);
+  const month2InputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, monthType: 'month1' | 'month2') => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -30,17 +34,24 @@ export default function FileUpload({ onDataLoaded }: FileUploadProps) {
       return;
     }
 
-    setFileName(file.name);
     setIsUploading(true);
 
     try {
       const data = await parseExcelFile(file);
-      saveInvestorsData(data);
+      
+      if (monthType === 'month1') {
+        setMonth1File(file.name);
+        setMonth1Data(data);
+      } else {
+        setMonth2File(file.name);
+        setMonth2Data(data);
+      }
+      
       toast({
-        title: "Data loaded successfully",
+        title: `${monthType === 'month1' ? 'First' : 'Second'} month data loaded`,
         description: `Loaded ${data.length} investor records.`,
       });
-      onDataLoaded();
+      
     } catch (error) {
       console.error("Error uploading file:", error);
       toast({
@@ -53,46 +64,98 @@ export default function FileUpload({ onDataLoaded }: FileUploadProps) {
     }
   };
 
-  const handleButtonClick = () => {
-    // Trigger the hidden file input when the button is clicked
-    fileInputRef.current?.click();
+  const handleProcessData = () => {
+    if (month1Data.length === 0 || month2Data.length === 0) {
+      toast({
+        title: "Missing data",
+        description: "Please upload both month files before processing.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    saveInvestorsData(month1Data, month2Data);
+    toast({
+      title: "Data processed successfully",
+      description: "Both months of data have been processed and are ready for analysis.",
+    });
+    onDataLoaded();
   };
 
   return (
     <div className="p-6 bg-white rounded-lg shadow-sm border">
-      <div className="flex flex-col items-center space-y-4">
+      <div className="flex flex-col items-center space-y-6">
         <div className="flex items-center justify-center w-16 h-16 rounded-full bg-dashboard-teal bg-opacity-10">
           <Upload className="w-8 h-8 text-dashboard-teal" />
         </div>
-        <h2 className="text-2xl font-bold text-dashboard-navy">Upload Investor Data</h2>
-        <p className="text-dashboard-gray text-center max-w-md">
-          Upload an Excel (.xlsx) file containing the top 100 investors data to begin analysis.
-        </p>
+        <div className="text-center">
+          <h2 className="text-2xl font-bold text-dashboard-navy">Upload Monthly Investor Data</h2>
+          <p className="text-dashboard-gray max-w-md mt-2">
+            Upload two Excel files containing investor data from consecutive months to analyze behavior trends.
+          </p>
+        </div>
         
-        <div className="w-full max-w-sm mt-4">
-          <Input
-            id="file-upload"
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.xls"
-            onChange={handleFileUpload}
-            className="hidden"
-          />
-          <div className="flex flex-col gap-2 items-center">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-2xl">
+          {/* Month 1 Upload */}
+          <div className="space-y-3">
+            <h3 className="font-semibold text-dashboard-navy">First Month Data</h3>
+            <Input
+              ref={month1InputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={(e) => handleFileUpload(e, 'month1')}
+              className="hidden"
+            />
             <Button 
               type="button"
-              onClick={handleButtonClick}
-              className="w-full cursor-pointer bg-dashboard-teal hover:bg-dashboard-teal/80"
+              onClick={() => month1InputRef.current?.click()}
+              className="w-full bg-dashboard-teal hover:bg-dashboard-teal/80"
+              disabled={isUploading}
             >
-              {isUploading ? "Processing..." : "Select Excel File"}
+              {isUploading ? "Processing..." : "Select First Month File"}
             </Button>
-            {fileName && (
-              <p className="text-sm text-dashboard-gray">
-                Selected: {fileName}
+            {month1File && (
+              <p className="text-sm text-dashboard-gray text-center">
+                ✓ {month1File} ({month1Data.length} records)
+              </p>
+            )}
+          </div>
+
+          {/* Month 2 Upload */}
+          <div className="space-y-3">
+            <h3 className="font-semibold text-dashboard-navy">Second Month Data</h3>
+            <Input
+              ref={month2InputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={(e) => handleFileUpload(e, 'month2')}
+              className="hidden"
+            />
+            <Button 
+              type="button"
+              onClick={() => month2InputRef.current?.click()}
+              className="w-full bg-dashboard-teal hover:bg-dashboard-teal/80"
+              disabled={isUploading}
+            >
+              {isUploading ? "Processing..." : "Select Second Month File"}
+            </Button>
+            {month2File && (
+              <p className="text-sm text-dashboard-gray text-center">
+                ✓ {month2File} ({month2Data.length} records)
               </p>
             )}
           </div>
         </div>
+
+        {/* Process Button */}
+        {month1Data.length > 0 && month2Data.length > 0 && (
+          <Button 
+            onClick={handleProcessData}
+            className="bg-green-600 hover:bg-green-700 text-white px-8 py-2"
+          >
+            Process Monthly Comparison
+          </Button>
+        )}
       </div>
     </div>
   );

@@ -16,7 +16,6 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Investor } from '@/types';
 
-// Properly register all required components
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -29,29 +28,34 @@ ChartJS.register(
 );
 
 interface TrendAnalysisProps {
-  investors: Investor[];
+  month1Investors: Investor[];
+  month2Investors: Investor[];
 }
 
-export default function TrendAnalysis({ investors }: TrendAnalysisProps) {
+export default function TrendAnalysis({ month1Investors, month2Investors }: TrendAnalysisProps) {
   const chartRef = useRef<HTMLCanvasElement | null>(null);
   const chartInstance = useRef<ChartJS | null>(null);
 
   useEffect(() => {
-    if (!chartRef.current || !investors.length) return;
+    if (!chartRef.current || (!month1Investors.length && !month2Investors.length)) return;
 
-    // Destroy previous chart if it exists
     if (chartInstance.current) {
       chartInstance.current.destroy();
     }
 
-    // Group investors by category
-    const categories = [...new Set(investors.map(investor => investor.category))];
+    // Group by category for both months
+    const categories = [...new Set([
+      ...month1Investors.map(inv => inv.category),
+      ...month2Investors.map(inv => inv.category)
+    ])];
     
-    // Create datasets for each category
+    // Create datasets for each category showing month-to-month progression
     const datasets = categories.map((category, index) => {
-      const categoryInvestors = investors.filter(investor => investor.category === category);
-      const totalBought = categoryInvestors.reduce((sum, investor) => sum + investor.boughtOn18, 0);
-      const totalSold = categoryInvestors.reduce((sum, investor) => sum + investor.soldOn25, 0);
+      const month1CategoryInvestors = month1Investors.filter(investor => investor.category === category);
+      const month2CategoryInvestors = month2Investors.filter(investor => investor.category === category);
+      
+      const month1Total = month1CategoryInvestors.reduce((sum, investor) => sum + investor.netChange, 0);
+      const month2Total = month2CategoryInvestors.reduce((sum, investor) => sum + investor.netChange, 0);
       
       // Color palette
       const colors = [
@@ -66,17 +70,19 @@ export default function TrendAnalysis({ investors }: TrendAnalysisProps) {
       
       return {
         label: category,
-        data: [totalBought, totalSold],
+        data: [month1Total, month2Total],
         borderColor: colors[index % colors.length],
         backgroundColor: colors[index % colors.length].replace('0.7', '0.1'),
-        borderWidth: 2,
+        borderWidth: 3,
         tension: 0.4,
-        fill: true,
+        fill: false,
+        pointRadius: 6,
+        pointHoverRadius: 8,
       };
     });
 
     const chartData: ChartData<'line', number[], string> = {
-      labels: ['April 18, 2025', 'April 25, 2025'],
+      labels: ['Month 1', 'Month 2'],
       datasets
     };
 
@@ -85,10 +91,18 @@ export default function TrendAnalysis({ investors }: TrendAnalysisProps) {
       maintainAspectRatio: false,
       scales: {
         y: {
-          beginAtZero: true,
           title: {
             display: true,
-            text: 'Volume'
+            text: 'Net Position Change'
+          },
+          grid: {
+            color: 'rgba(0, 0, 0, 0.1)'
+          }
+        },
+        x: {
+          title: {
+            display: true,
+            text: 'Time Period'
           }
         }
       },
@@ -99,14 +113,20 @@ export default function TrendAnalysis({ investors }: TrendAnalysisProps) {
         tooltip: {
           callbacks: {
             label: function(context) {
-              return `${context.dataset.label}: ${context.parsed.y.toLocaleString()}`;
+              const value = context.parsed.y;
+              const trend = context.dataIndex === 1 && datasets[context.datasetIndex] 
+                ? value - datasets[context.datasetIndex].data[0] 
+                : 0;
+              return [
+                `${context.dataset.label}: ${value.toLocaleString()}`,
+                context.dataIndex === 1 ? `Trend: ${trend > 0 ? '+' : ''}${trend.toLocaleString()}` : ''
+              ].filter(Boolean);
             }
           }
         }
       }
     };
 
-    // Create chart
     const ctx = chartRef.current.getContext('2d');
     
     if (ctx) {
@@ -122,15 +142,15 @@ export default function TrendAnalysis({ investors }: TrendAnalysisProps) {
         chartInstance.current.destroy();
       }
     };
-  }, [investors]);
+  }, [month1Investors, month2Investors]);
 
-  if (!investors.length) {
+  if (!month1Investors.length && !month2Investors.length) {
     return (
       <Card className="col-span-3">
         <CardHeader>
-          <CardTitle>Trend Analysis</CardTitle>
+          <CardTitle>Monthly Trend Analysis</CardTitle>
           <CardDescription>
-            No data available. Please upload investor data.
+            No data available. Please upload investor data for both months.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -140,9 +160,9 @@ export default function TrendAnalysis({ investors }: TrendAnalysisProps) {
   return (
     <Card className="col-span-3">
       <CardHeader>
-        <CardTitle>Trend Analysis</CardTitle>
+        <CardTitle>Monthly Trend Analysis</CardTitle>
         <CardDescription>
-          Weekly trend of investment positions by category
+          Category-wise net position changes between two months
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -150,7 +170,11 @@ export default function TrendAnalysis({ investors }: TrendAnalysisProps) {
           <canvas ref={chartRef} />
         </div>
         <p className="text-sm text-muted-foreground mt-4">
-          This chart tracks the change in investment positions between April 18, 2025 and April 25, 2025, grouped by investor category. Each line represents a category of investors, showing how their cumulative positions changed over the week. An upward trend indicates increased holdings (buying activity), while a downward trend indicates decreased holdings (selling activity).
+          This chart tracks the change in net positions by investor category between the two months. 
+          Each line represents a category, showing the progression from Month 1 to Month 2. 
+          An upward trend indicates the category had increased net positive positions (more buying or less selling), 
+          while a downward trend indicates decreased net positions (more selling or less buying). 
+          The slope and direction help identify which investor categories drove market movements during this period.
         </p>
       </CardContent>
     </Card>
