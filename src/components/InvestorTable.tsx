@@ -6,15 +6,17 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { ArrowDown, ArrowUp, Search } from "lucide-react";
+import FundGroupBreakdown from "./FundGroupBreakdown";
 
 interface InvestorTableProps {
   investors: Investor[];
   categories: string[];
+  fundGroups: string[];
   filters: FilterOptions;
   onFilterChange: (filters: Partial<FilterOptions>) => void;
 }
 
-export default function InvestorTable({ investors, categories, filters, onFilterChange }: InvestorTableProps) {
+export default function InvestorTable({ investors, categories, fundGroups, filters, onFilterChange }: InvestorTableProps) {
   const [searchInput, setSearchInput] = useState(filters.searchQuery);
 
   const handleSearch = (e: React.FormEvent) => {
@@ -68,6 +70,23 @@ export default function InvestorTable({ investors, categories, filters, onFilter
               ))}
             </SelectContent>
           </Select>
+
+          <Select
+            value={filters.fundGroup || "all"}
+            onValueChange={(value) => onFilterChange({ fundGroup: value === "all" ? null : value })}
+          >
+            <SelectTrigger className="w-full sm:w-[180px]">
+              <SelectValue placeholder="All Fund Groups" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Fund Groups</SelectItem>
+              {fundGroups.map((group) => (
+                <SelectItem key={group} value={group}>
+                  {group}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
@@ -76,12 +95,13 @@ export default function InvestorTable({ investors, categories, filters, onFilter
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/50 hover:bg-muted/50">
+                <TableHead className="w-8"></TableHead>
                 <TableHead 
                   className="cursor-pointer"
                   onClick={() => handleSort("name")}
                 >
                   <div className="flex items-center">
-                    Investor
+                    Fund Group / Investor
                     {getSortIcon("name")}
                   </div>
                 </TableHead>
@@ -90,7 +110,7 @@ export default function InvestorTable({ investors, categories, filters, onFilter
                   onClick={() => handleSort("boughtOn18")}
                 >
                   <div className="flex items-center justify-end">
-                    Bought on 18/04
+                    Bought
                     {getSortIcon("boughtOn18")}
                   </div>
                 </TableHead>
@@ -99,7 +119,7 @@ export default function InvestorTable({ investors, categories, filters, onFilter
                   onClick={() => handleSort("soldOn25")}
                 >
                   <div className="flex items-center justify-end">
-                    Sold on 25/04
+                    Sold
                     {getSortIcon("soldOn25")}
                   </div>
                 </TableHead>
@@ -127,14 +147,24 @@ export default function InvestorTable({ investors, categories, filters, onFilter
             <TableBody>
               {investors.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-24 text-center">
+                  <TableCell colSpan={7} className="h-24 text-center">
                     No investors found.
                   </TableCell>
                 </TableRow>
               ) : (
                 investors.map((investor, index) => (
                   <TableRow key={`${investor.name}-${index}`}>
-                    <TableCell className="font-medium">{investor.name}</TableCell>
+                    <TableCell>
+                      <FundGroupBreakdown fundGroup={investor} />
+                    </TableCell>
+                    <TableCell className="font-medium">
+                      {investor.name}
+                      {investor.individualInvestors && investor.individualInvestors.length > 1 && (
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          ({investor.individualInvestors.length} entities)
+                        </span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">{investor.boughtOn18.toLocaleString()}</TableCell>
                     <TableCell className="text-right">{investor.soldOn25.toLocaleString()}</TableCell>
                     <TableCell className="text-right">

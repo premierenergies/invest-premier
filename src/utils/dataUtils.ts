@@ -1,4 +1,3 @@
-
 import { read, utils } from "xlsx";
 import { Investor, FilterOptions, AnalyticsSummary, InvestorComparison } from "@/types";
 
@@ -16,17 +15,26 @@ export const parseExcelFile = async (file: File): Promise<Investor[]> => {
         const json = utils.sheet_to_json(worksheet);
         
         const investors: Investor[] = json.map((row: any) => {
-          const boughtOn18 = parseFloat(row["BOUGHT"] || 0);
-          const soldOn25 = parseFloat(row["SOLD"] || 0);
-          const name = row["NAME"] || "Unknown";
+          // Handle new format - extract dates dynamically
+          const keys = Object.keys(row);
+          
+          // Find the date columns (they contain dates in the format)
+          const startDateKey = keys.find(key => key.includes('As on') && key.includes('May') && !key.includes('30'));
+          const endDateKey = keys.find(key => key.includes('As on') && key.includes('30 May'));
+          
+          const startPosition = parseFloat(row[startDateKey || 'As on 02 May 2025'] || 0);
+          const endPosition = parseFloat(row[endDateKey || 'As on 30 May 2025'] || 0);
+          const bought = parseFloat(row["Bought"] || 0);
+          const sold = parseFloat(row["Sold"] || 0);
+          const name = row["Name"] || "Unknown";
           
           return {
             name,
-            boughtOn18,
-            soldOn25,
-            percentToEquity: parseFloat(row["% to EQUITY"] || 0),
-            category: row["CATEGORY"] || "Unknown",
-            netChange: soldOn25 - boughtOn18,
+            boughtOn18: bought,
+            soldOn25: sold,
+            percentToEquity: parseFloat(row["% to Equity"] || row["Percentage"] || 0),
+            category: row["Category"] || "Unknown",
+            netChange: sold - bought,
             fundGroup: getFundGroup(name)
           };
         });
@@ -52,16 +60,78 @@ export const getFundGroup = (name: string): string => {
   return words[0]?.toUpperCase() || "UNKNOWN";
 };
 
+// Merge investors by fund group (first 2 words)
+export const mergeInvestorsByFundGroup = (investors: Investor[]): Investor[] => {
+  const groupedData: Record<string, {
+    investors: Investor[];
+    totalBought: number;
+    totalSold: number;
+    totalEquity: number;
+    category: string;
+  }> = {};
+
+  // Group investors by fund group
+  investors.forEach(investor => {
+    const group = investor.fundGroup || getFundGroup(investor.name);
+    
+    if (!groupedData[group]) {
+      groupedData[group] = {
+        investors: [],
+        totalBought: 0,
+        totalSold: 0,
+        totalEquity: 0,
+        category: investor.category
+      };
+    }
+    
+    groupedData[group].investors.push(investor);
+    groupedData[group].totalBought += investor.boughtOn18;
+    groupedData[group].totalSold += investor.soldOn25;
+    groupedData[group].totalEquity += investor.percentToEquity;
+  });
+
+  // Create merged investor records
+  return Object.entries(groupedData).map(([group, data]) => ({
+    name: group,
+    boughtOn18: data.totalBought,
+    soldOn25: data.totalSold,
+    percentToEquity: data.totalEquity,
+    category: data.category,
+    netChange: data.totalSold - data.totalBought,
+    fundGroup: group,
+    individualInvestors: data.investors // Store individual investors for breakdown
+  }));
+};
+
 // Save investors data to localStorage with month identifier
 export const saveInvestorsData = (month1Data: Investor[], month2Data: Investor[]): void => {
-  localStorage.setItem("investorsDataMonth1", JSON.stringify(month1Data));
-  localStorage.setItem("investorsDataMonth2", JSON.stringify(month2Data));
+  // Merge by fund groups before saving
+  const mergedMonth1 = mergeInvestorsByFundGroup(month1Data);
+  const mergedMonth2 = mergeInvestorsByFundGroup(month2Data);
+  
+  localStorage.setItem("investorsDataMonth1", JSON.stringify(mergedMonth1));
+  localStorage.setItem("investorsDataMonth2", JSON.stringify(mergedMonth2));
+  
+  // Also save original data for detailed breakdown if needed
+  localStorage.setItem("originalInvestorsDataMonth1", JSON.stringify(month1Data));
+  localStorage.setItem("originalInvestorsDataMonth2", JSON.stringify(month2Data));
 };
 
 // Get investors data from localStorage
 export const getInvestorsData = (): { month1: Investor[], month2: Investor[] } => {
   const month1Data = localStorage.getItem("investorsDataMonth1");
   const month2Data = localStorage.getItem("investorsDataMonth2");
+  
+  return {
+    month1: month1Data ? JSON.parse(month1Data) : [],
+    month2: month2Data ? JSON.parse(month2Data) : []
+  };
+};
+
+// Get original (unmerged) investors data from localStorage
+export const getOriginalInvestorsData = (): { month1: Investor[], month2: Investor[] } => {
+  const month1Data = localStorage.getItem("originalInvestorsDataMonth1");
+  const month2Data = localStorage.getItem("originalInvestorsDataMonth2");
   
   return {
     month1: month1Data ? JSON.parse(month1Data) : [],

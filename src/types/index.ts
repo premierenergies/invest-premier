@@ -6,7 +6,8 @@ export interface Investor {
   percentToEquity: number;
   category: string;
   netChange?: number;
-  fundGroup?: string; // New field for grouping funds
+  fundGroup?: string;
+  individualInvestors?: Investor[]; // For merged fund groups, store individual investors
 }
 
 export interface InvestorComparison {
@@ -23,7 +24,7 @@ export interface FilterOptions {
   sortBy: 'name' | 'boughtOn18' | 'soldOn25' | 'percentToEquity' | 'netChange';
   sortOrder: 'asc' | 'desc';
   searchQuery: string;
-  fundGroup: string | null; // New filter for fund groups
+  fundGroup: string | null;
 }
 
 export interface ChartData {
