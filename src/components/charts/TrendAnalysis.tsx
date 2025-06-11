@@ -28,34 +28,29 @@ ChartJS.register(
 );
 
 interface TrendAnalysisProps {
-  month1Investors: Investor[];
-  month2Investors: Investor[];
+  investors: Investor[];
 }
 
-export default function TrendAnalysis({ month1Investors, month2Investors }: TrendAnalysisProps) {
+export default function TrendAnalysis({ investors }: TrendAnalysisProps) {
   const chartRef = useRef<HTMLCanvasElement | null>(null);
   const chartInstance = useRef<ChartJS | null>(null);
 
   useEffect(() => {
-    if (!chartRef.current || (!month1Investors.length && !month2Investors.length)) return;
+    if (!chartRef.current || !investors.length) return;
 
     if (chartInstance.current) {
       chartInstance.current.destroy();
     }
 
-    // Group by category for both months
-    const categories = [...new Set([
-      ...month1Investors.map(inv => inv.category),
-      ...month2Investors.map(inv => inv.category)
-    ])];
+    // Group by category for both start and end positions
+    const categories = [...new Set(investors.map(inv => inv.category))];
     
-    // Create datasets for each category showing month-to-month progression
+    // Create datasets for each category showing start-to-end progression
     const datasets = categories.map((category, index) => {
-      const month1CategoryInvestors = month1Investors.filter(investor => investor.category === category);
-      const month2CategoryInvestors = month2Investors.filter(investor => investor.category === category);
+      const categoryInvestors = investors.filter(investor => investor.category === category);
       
-      const month1Total = month1CategoryInvestors.reduce((sum, investor) => sum + investor.netChange, 0);
-      const month2Total = month2CategoryInvestors.reduce((sum, investor) => sum + investor.netChange, 0);
+      const startTotal = categoryInvestors.reduce((sum, investor) => sum + (investor.startPosition || 0), 0);
+      const endTotal = categoryInvestors.reduce((sum, investor) => sum + (investor.endPosition || 0), 0);
       
       // Color palette
       const colors = [
@@ -70,7 +65,7 @@ export default function TrendAnalysis({ month1Investors, month2Investors }: Tren
       
       return {
         label: category,
-        data: [month1Total, month2Total],
+        data: [startTotal, endTotal],
         borderColor: colors[index % colors.length],
         backgroundColor: colors[index % colors.length].replace('0.7', '0.1'),
         borderWidth: 3,
@@ -82,7 +77,7 @@ export default function TrendAnalysis({ month1Investors, month2Investors }: Tren
     });
 
     const chartData: ChartData<'line', number[], string> = {
-      labels: ['Month 1', 'Month 2'],
+      labels: ['Start Period', 'End Period'],
       datasets
     };
 
@@ -93,7 +88,7 @@ export default function TrendAnalysis({ month1Investors, month2Investors }: Tren
         y: {
           title: {
             display: true,
-            text: 'Net Position Change'
+            text: 'Total Position'
           },
           grid: {
             color: 'rgba(0, 0, 0, 0.1)'
@@ -142,15 +137,15 @@ export default function TrendAnalysis({ month1Investors, month2Investors }: Tren
         chartInstance.current.destroy();
       }
     };
-  }, [month1Investors, month2Investors]);
+  }, [investors]);
 
-  if (!month1Investors.length && !month2Investors.length) {
+  if (!investors.length) {
     return (
       <Card className="col-span-3">
         <CardHeader>
-          <CardTitle>Monthly Trend Analysis</CardTitle>
+          <CardTitle>Position Trend Analysis</CardTitle>
           <CardDescription>
-            No data available. Please upload investor data for both months.
+            No data available. Please upload investor data.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -160,9 +155,9 @@ export default function TrendAnalysis({ month1Investors, month2Investors }: Tren
   return (
     <Card className="col-span-3">
       <CardHeader>
-        <CardTitle>Monthly Trend Analysis</CardTitle>
+        <CardTitle>Position Trend Analysis</CardTitle>
         <CardDescription>
-          Category-wise net position changes between two months
+          Category-wise position changes between start and end periods
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -170,10 +165,10 @@ export default function TrendAnalysis({ month1Investors, month2Investors }: Tren
           <canvas ref={chartRef} />
         </div>
         <p className="text-sm text-muted-foreground mt-4">
-          This chart tracks the change in net positions by investor category between the two months. 
-          Each line represents a category, showing the progression from Month 1 to Month 2. 
-          An upward trend indicates the category had increased net positive positions (more buying or less selling), 
-          while a downward trend indicates decreased net positions (more selling or less buying). 
+          This chart tracks the change in positions by investor category between the start and end periods. 
+          Each line represents a category, showing the progression from the initial position to the final position. 
+          An upward trend indicates the category had increased total positions, 
+          while a downward trend indicates decreased total positions. 
           The slope and direction help identify which investor categories drove market movements during this period.
         </p>
       </CardContent>
