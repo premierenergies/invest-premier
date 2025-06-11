@@ -1,3 +1,4 @@
+
 import { read, utils } from "xlsx";
 import { Investor, FilterOptions, AnalyticsSummary, InvestorComparison } from "@/types";
 
@@ -15,17 +16,35 @@ export const parseExcelFile = async (file: File): Promise<Investor[]> => {
         const json = utils.sheet_to_json(worksheet);
         
         const investors: Investor[] = json.map((row: any) => {
-          // Handle new format with both positions in same file
+          // Handle the exact format from the image
           const keys = Object.keys(row);
           
-          // Find the date columns dynamically
-          const startDateKey = keys.find(key => key.includes('As on') && key.includes('May') && !key.includes('30'));
-          const endDateKey = keys.find(key => key.includes('As on') && key.includes('30 May'));
+          // Find the date columns dynamically - looking for "As on" pattern
+          const startDateKey = keys.find(key => 
+            key.includes('As on') && 
+            !key.toLowerCase().includes('sold') && 
+            !key.toLowerCase().includes('bought') &&
+            keys.indexOf(key) < keys.findIndex(k => k.toLowerCase().includes('sold'))
+          );
           
-          const startPosition = parseFloat(row[startDateKey || 'As on 02 May 2025'] || 0);
-          const endPosition = parseFloat(row[endDateKey || 'As on 30 May 2025'] || 0);
-          const bought = parseFloat(row["Bought"] || 0);
-          const sold = parseFloat(row["Sold"] || 0);
+          const endDateKey = keys.find(key => 
+            key.includes('As on') && 
+            !key.toLowerCase().includes('sold') && 
+            !key.toLowerCase().includes('bought') &&
+            keys.indexOf(key) > keys.findIndex(k => k.toLowerCase().includes('bought'))
+          );
+          
+          // Parse numeric values, handling commas
+          const parseNumber = (value: any): number => {
+            if (!value) return 0;
+            const str = value.toString().replace(/,/g, '');
+            return parseFloat(str) || 0;
+          };
+          
+          const startPosition = parseNumber(row[startDateKey || 'As on 02 May 2025']);
+          const endPosition = parseNumber(row[endDateKey || 'As on 30 May 2025']);
+          const sold = parseNumber(row["Sold"]);
+          const bought = parseNumber(row["Bought"]);
           const name = row["Name"] || "Unknown";
           
           return {
