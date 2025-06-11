@@ -7,6 +7,8 @@ export interface Investor {
   category: string;
   netChange?: number;
   fundGroup?: string;
+  startPosition?: number;
+  endPosition?: number;
   individualInvestors?: Investor[]; // For merged fund groups, store individual investors
 }
 
@@ -15,7 +17,7 @@ export interface InvestorComparison {
   month1: Investor;
   month2: Investor;
   behaviorType: 'buyer' | 'seller' | 'holder' | 'new' | 'exited';
-  trendChange: number; // Change in net position between months
+  trendChange: number; // Change in net position between dates
   fundGroup: string;
 }
 
@@ -49,13 +51,4 @@ export interface AnalyticsSummary {
   }[];
   topGainer: Investor | null;
   topSeller: Investor | null;
-  monthlyComparison?: {
-    totalInvestorsMonth1: number;
-    totalInvestorsMonth2: number;
-    newInvestors: number;
-    exitedInvestors: number;
-    buyerCount: number;
-    sellerCount: number;
-    holderCount: number;
-  };
 }

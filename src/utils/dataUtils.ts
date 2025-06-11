@@ -15,10 +15,10 @@ export const parseExcelFile = async (file: File): Promise<Investor[]> => {
         const json = utils.sheet_to_json(worksheet);
         
         const investors: Investor[] = json.map((row: any) => {
-          // Handle new format - extract dates dynamically
+          // Handle new format with both positions in same file
           const keys = Object.keys(row);
           
-          // Find the date columns (they contain dates in the format)
+          // Find the date columns dynamically
           const startDateKey = keys.find(key => key.includes('As on') && key.includes('May') && !key.includes('30'));
           const endDateKey = keys.find(key => key.includes('As on') && key.includes('30 May'));
           
@@ -32,10 +32,12 @@ export const parseExcelFile = async (file: File): Promise<Investor[]> => {
             name,
             boughtOn18: bought,
             soldOn25: sold,
-            percentToEquity: parseFloat(row["% to Equity"] || row["Percentage"] || 0),
+            percentToEquity: endPosition, // Using end position as % to equity
             category: row["Category"] || "Unknown",
-            netChange: sold - bought,
-            fundGroup: getFundGroup(name)
+            netChange: bought - sold, // Net change calculation
+            fundGroup: getFundGroup(name),
+            startPosition,
+            endPosition
           };
         });
         
@@ -66,7 +68,8 @@ export const mergeInvestorsByFundGroup = (investors: Investor[]): Investor[] => 
     investors: Investor[];
     totalBought: number;
     totalSold: number;
-    totalEquity: number;
+    totalStartPosition: number;
+    totalEndPosition: number;
     category: string;
   }> = {};
 
@@ -79,7 +82,8 @@ export const mergeInvestorsByFundGroup = (investors: Investor[]): Investor[] => 
         investors: [],
         totalBought: 0,
         totalSold: 0,
-        totalEquity: 0,
+        totalStartPosition: 0,
+        totalEndPosition: 0,
         category: investor.category
       };
     }
@@ -87,7 +91,8 @@ export const mergeInvestorsByFundGroup = (investors: Investor[]): Investor[] => 
     groupedData[group].investors.push(investor);
     groupedData[group].totalBought += investor.boughtOn18;
     groupedData[group].totalSold += investor.soldOn25;
-    groupedData[group].totalEquity += investor.percentToEquity;
+    groupedData[group].totalStartPosition += investor.startPosition || 0;
+    groupedData[group].totalEndPosition += investor.endPosition || 0;
   });
 
   // Create merged investor records
@@ -95,47 +100,162 @@ export const mergeInvestorsByFundGroup = (investors: Investor[]): Investor[] => 
     name: group,
     boughtOn18: data.totalBought,
     soldOn25: data.totalSold,
-    percentToEquity: data.totalEquity,
+    percentToEquity: data.totalEndPosition,
     category: data.category,
-    netChange: data.totalSold - data.totalBought,
+    netChange: data.totalBought - data.totalSold,
     fundGroup: group,
+    startPosition: data.totalStartPosition,
+    endPosition: data.totalEndPosition,
     individualInvestors: data.investors // Store individual investors for breakdown
   }));
 };
 
-// Save investors data to localStorage with month identifier
-export const saveInvestorsData = (month1Data: Investor[], month2Data: Investor[]): void => {
+// Save investors data to localStorage
+export const saveInvestorsData = (investorData: Investor[]): void => {
   // Merge by fund groups before saving
-  const mergedMonth1 = mergeInvestorsByFundGroup(month1Data);
-  const mergedMonth2 = mergeInvestorsByFundGroup(month2Data);
+  const mergedData = mergeInvestorsByFundGroup(investorData);
   
-  localStorage.setItem("investorsDataMonth1", JSON.stringify(mergedMonth1));
-  localStorage.setItem("investorsDataMonth2", JSON.stringify(mergedMonth2));
+  localStorage.setItem("investorsData", JSON.stringify(mergedData));
   
   // Also save original data for detailed breakdown if needed
-  localStorage.setItem("originalInvestorsDataMonth1", JSON.stringify(month1Data));
-  localStorage.setItem("originalInvestorsDataMonth2", JSON.stringify(month2Data));
+  localStorage.setItem("originalInvestorsData", JSON.stringify(investorData));
 };
 
 // Get investors data from localStorage
-export const getInvestorsData = (): { month1: Investor[], month2: Investor[] } => {
-  const month1Data = localStorage.getItem("investorsDataMonth1");
-  const month2Data = localStorage.getItem("investorsDataMonth2");
-  
-  return {
-    month1: month1Data ? JSON.parse(month1Data) : [],
-    month2: month2Data ? JSON.parse(month2Data) : []
-  };
+export const getInvestorsData = (): Investor[] => {
+  const data = localStorage.getItem("investorsData");
+  return data ? JSON.parse(data) : [];
 };
 
 // Get original (unmerged) investors data from localStorage
-export const getOriginalInvestorsData = (): { month1: Investor[], month2: Investor[] } => {
-  const month1Data = localStorage.getItem("originalInvestorsDataMonth1");
-  const month2Data = localStorage.getItem("originalInvestorsDataMonth2");
+export const getOriginalInvestorsData = (): Investor[] => {
+  const data = localStorage.getItem("originalInvestorsData");
+  return data ? JSON.parse(data) : [];
+};
+
+// Analyze investor behavior based on position changes
+export const analyzeInvestorBehavior = (investors: Investor[]): InvestorComparison[] => {
+  return investors.map(investor => {
+    const positionChange = (investor.endPosition || 0) - (investor.startPosition || 0);
+    const netActivity = investor.boughtOn18 - investor.soldOn25;
+    
+    let behaviorType: InvestorComparison['behaviorType'] = 'holder';
+    
+    if (netActivity > 1000) behaviorType = 'buyer';
+    else if (netActivity < -1000) behaviorType = 'seller';
+    else if ((investor.startPosition || 0) === 0 && (investor.endPosition || 0) > 0) behaviorType = 'new';
+    else if ((investor.startPosition || 0) > 0 && (investor.endPosition || 0) === 0) behaviorType = 'exited';
+    
+    return {
+      name: investor.name,
+      month1: {
+        ...investor,
+        percentToEquity: investor.startPosition || 0,
+        netChange: 0
+      },
+      month2: {
+        ...investor,
+        percentToEquity: investor.endPosition || 0,
+        netChange: netActivity
+      },
+      behaviorType,
+      trendChange: positionChange,
+      fundGroup: investor.fundGroup || getFundGroup(investor.name)
+    };
+  });
+};
+
+// Filter and sort investors data
+export const filterInvestors = (
+  investors: Investor[],
+  filters: FilterOptions
+): Investor[] => {
+  return investors
+    .filter((investor) => {
+      const matchesCategory = !filters.category || investor.category === filters.category;
+      const matchesFundGroup = !filters.fundGroup || investor.fundGroup === filters.fundGroup;
+      const matchesSearch = !filters.searchQuery || 
+        investor.name.toLowerCase().includes(filters.searchQuery.toLowerCase());
+      return matchesCategory && matchesFundGroup && matchesSearch;
+    })
+    .sort((a, b) => {
+      const sortField = filters.sortBy;
+      const sortOrder = filters.sortOrder === "asc" ? 1 : -1;
+      
+      if (a[sortField] < b[sortField]) return -1 * sortOrder;
+      if (a[sortField] > b[sortField]) return 1 * sortOrder;
+      return 0;
+    });
+};
+
+// Get unique categories from investors data
+export const getUniqueCategories = (investors: Investor[]): string[] => {
+  const categories = new Set<string>();
+  investors.forEach((investor) => {
+    if (investor.category) {
+      categories.add(investor.category);
+    }
+  });
+  return Array.from(categories);
+};
+
+// Get unique fund groups from investors data
+export const getUniqueFundGroups = (investors: Investor[]): string[] => {
+  const fundGroups = new Set<string>();
+  investors.forEach((investor) => {
+    if (investor.fundGroup) {
+      fundGroups.add(investor.fundGroup);
+    }
+  });
+  return Array.from(fundGroups).sort();
+};
+
+// Generate analytics summary from investors data
+export const generateAnalyticsSummary = (investors: Investor[]): AnalyticsSummary => {
+  if (!investors.length) {
+    return {
+      totalInvestors: 0,
+      totalBought: 0,
+      totalSold: 0,
+      netPosition: 0,
+      topCategories: [],
+      topGainer: null,
+      topSeller: null,
+    };
+  }
+  
+  const totalInvestors = investors.length;
+  const totalBought = investors.reduce((sum, investor) => sum + investor.boughtOn18, 0);
+  const totalSold = investors.reduce((sum, investor) => sum + investor.soldOn25, 0);
+  const netPosition = totalBought - totalSold;
+  
+  // Find top categories by count
+  const categoryCount: Record<string, number> = {};
+  investors.forEach((investor) => {
+    categoryCount[investor.category] = (categoryCount[investor.category] || 0) + 1;
+  });
+  
+  const topCategories = Object.keys(categoryCount)
+    .map((category) => ({
+      category,
+      count: categoryCount[category],
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+  
+  // Find top gainer and seller
+  const sortedByNetChange = [...investors].sort((a, b) => 
+    (b.netChange || 0) - (a.netChange || 0)
+  );
   
   return {
-    month1: month1Data ? JSON.parse(month1Data) : [],
-    month2: month2Data ? JSON.parse(month2Data) : []
+    totalInvestors,
+    totalBought,
+    totalSold,
+    netPosition,
+    topCategories,
+    topGainer: sortedByNetChange[0] || null,
+    topSeller: sortedByNetChange[sortedByNetChange.length - 1] || null,
   };
 };
 
@@ -192,118 +312,4 @@ export const compareInvestorBehavior = (month1: Investor[], month2: Investor[]):
   });
   
   return comparisons;
-};
-
-// Filter and sort investors data
-export const filterInvestors = (
-  investors: Investor[],
-  filters: FilterOptions
-): Investor[] => {
-  return investors
-    .filter((investor) => {
-      const matchesCategory = !filters.category || investor.category === filters.category;
-      const matchesFundGroup = !filters.fundGroup || investor.fundGroup === filters.fundGroup;
-      const matchesSearch = !filters.searchQuery || 
-        investor.name.toLowerCase().includes(filters.searchQuery.toLowerCase());
-      return matchesCategory && matchesFundGroup && matchesSearch;
-    })
-    .sort((a, b) => {
-      const sortField = filters.sortBy;
-      const sortOrder = filters.sortOrder === "asc" ? 1 : -1;
-      
-      if (a[sortField] < b[sortField]) return -1 * sortOrder;
-      if (a[sortField] > b[sortField]) return 1 * sortOrder;
-      return 0;
-    });
-};
-
-// Get unique categories from investors data
-export const getUniqueCategories = (investors: Investor[]): string[] => {
-  const categories = new Set<string>();
-  investors.forEach((investor) => {
-    if (investor.category) {
-      categories.add(investor.category);
-    }
-  });
-  return Array.from(categories);
-};
-
-// Get unique fund groups from investors data
-export const getUniqueFundGroups = (investors: Investor[]): string[] => {
-  const fundGroups = new Set<string>();
-  investors.forEach((investor) => {
-    if (investor.fundGroup) {
-      fundGroups.add(investor.fundGroup);
-    }
-  });
-  return Array.from(fundGroups).sort();
-};
-
-// Generate analytics summary from investors data
-export const generateAnalyticsSummary = (month1: Investor[], month2: Investor[]): AnalyticsSummary => {
-  if (!month1.length && !month2.length) {
-    return {
-      totalInvestors: 0,
-      totalBought: 0,
-      totalSold: 0,
-      netPosition: 0,
-      topCategories: [],
-      topGainer: null,
-      topSeller: null,
-    };
-  }
-  
-  // Use month2 data as primary, fallback to month1 if month2 is empty
-  const primaryData = month2.length > 0 ? month2 : month1;
-  
-  // Calculate totals for primary month
-  const totalInvestors = primaryData.length;
-  const totalBought = primaryData.reduce((sum, investor) => sum + investor.boughtOn18, 0);
-  const totalSold = primaryData.reduce((sum, investor) => sum + investor.soldOn25, 0);
-  const netPosition = totalSold - totalBought;
-  
-  // Find top categories by count
-  const categoryCount: Record<string, number> = {};
-  primaryData.forEach((investor) => {
-    categoryCount[investor.category] = (categoryCount[investor.category] || 0) + 1;
-  });
-  
-  const topCategories = Object.keys(categoryCount)
-    .map((category) => ({
-      category,
-      count: categoryCount[category],
-    }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 5);
-  
-  // Find top gainer and seller
-  const sortedByNetChange = [...primaryData].sort((a, b) => 
-    (b.netChange || 0) - (a.netChange || 0)
-  );
-  
-  // Monthly comparison if both months have data
-  let monthlyComparison;
-  if (month1.length > 0 && month2.length > 0) {
-    const comparisons = compareInvestorBehavior(month1, month2);
-    monthlyComparison = {
-      totalInvestorsMonth1: month1.length,
-      totalInvestorsMonth2: month2.length,
-      newInvestors: comparisons.filter(c => c.behaviorType === 'new').length,
-      exitedInvestors: comparisons.filter(c => c.behaviorType === 'exited').length,
-      buyerCount: comparisons.filter(c => c.behaviorType === 'buyer').length,
-      sellerCount: comparisons.filter(c => c.behaviorType === 'seller').length,
-      holderCount: comparisons.filter(c => c.behaviorType === 'holder').length,
-    };
-  }
-  
-  return {
-    totalInvestors,
-    totalBought,
-    totalSold,
-    netPosition,
-    topCategories,
-    topGainer: sortedByNetChange[0] || null,
-    topSeller: sortedByNetChange[sortedByNetChange.length - 1] || null,
-    monthlyComparison,
-  };
 };
