@@ -26,19 +26,21 @@ export default function Dashboard() {
     fundGroup: null,
   });
   const [dataLoaded, setDataLoaded] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
 
   // On component mount, check for data in localStorage
   useEffect(() => {
+    console.log("Dashboard mount - checking for saved data");
     const savedData = getInvestorsData();
+    console.log("Found saved data:", savedData.length, "records");
     if (savedData.length > 0) {
       setInvestors(savedData);
       setDataLoaded(true);
     }
-  }, [refreshKey]); // Add refreshKey as dependency to trigger re-check
+  }, []);
 
   // When investors data changes, update categories, fund groups, and filtered results
   useEffect(() => {
+    console.log("Investors data changed:", investors.length, "records");
     if (investors.length > 0) {
       const uniqueCategories = getUniqueCategories(investors);
       const uniqueFundGroups = getUniqueFundGroups(investors);
@@ -51,6 +53,8 @@ export default function Dashboard() {
       // Generate investor behavior analysis
       const comparisons = analyzeInvestorBehavior(investors);
       setInvestorComparisons(comparisons);
+      
+      console.log("Updated dashboard state - categories:", uniqueCategories.length, "fundGroups:", uniqueFundGroups.length);
     } else {
       setCategories([]);
       setFundGroups([]);
@@ -64,8 +68,11 @@ export default function Dashboard() {
   };
 
   const handleDataLoaded = () => {
-    // Force a refresh by incrementing the key and updating state
-    setRefreshKey(prev => prev + 1);
+    console.log("handleDataLoaded called - refreshing data");
+    // Force a refresh by re-reading from localStorage
+    const savedData = getInvestorsData();
+    console.log("Refreshed data:", savedData.length, "records");
+    setInvestors(savedData);
     setDataLoaded(true);
   };
 

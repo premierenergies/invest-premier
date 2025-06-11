@@ -22,6 +22,8 @@ export default function FileUpload({ onDataLoaded }: FileUploadProps) {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    console.log("File selected:", file.name);
+
     // Check if it's an Excel file
     if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
       toast({
@@ -35,7 +37,9 @@ export default function FileUpload({ onDataLoaded }: FileUploadProps) {
     setIsUploading(true);
 
     try {
+      console.log("Starting file parsing...");
       const data = await parseExcelFile(file);
+      console.log("Parsed data:", data.length, "records");
       
       setFileName(file.name);
       setInvestorData(data);
@@ -67,10 +71,13 @@ export default function FileUpload({ onDataLoaded }: FileUploadProps) {
       return;
     }
 
+    console.log("Starting data processing...");
     setIsProcessing(true);
     
     try {
       saveInvestorsData(investorData);
+      console.log("Data saved to localStorage");
+      
       toast({
         title: "Analysis complete",
         description: `Successfully analyzed ${investorData.length} investors with position changes between the two dates.`,
@@ -79,6 +86,7 @@ export default function FileUpload({ onDataLoaded }: FileUploadProps) {
       // Clear the upload state and trigger dashboard refresh
       setFileName(null);
       setInvestorData([]);
+      console.log("Calling onDataLoaded callback");
       onDataLoaded();
     } catch (error) {
       console.error("Error processing data:", error);
