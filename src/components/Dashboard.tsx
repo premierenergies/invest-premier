@@ -26,6 +26,7 @@ export default function Dashboard() {
     fundGroup: null,
   });
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // On component mount, check for data in localStorage
   useEffect(() => {
@@ -34,7 +35,7 @@ export default function Dashboard() {
       setInvestors(savedData);
       setDataLoaded(true);
     }
-  }, []);
+  }, [refreshKey]); // Add refreshKey as dependency to trigger re-check
 
   // When investors data changes, update categories, fund groups, and filtered results
   useEffect(() => {
@@ -63,8 +64,8 @@ export default function Dashboard() {
   };
 
   const handleDataLoaded = () => {
-    const savedData = getInvestorsData();
-    setInvestors(savedData);
+    // Force a refresh by incrementing the key and updating state
+    setRefreshKey(prev => prev + 1);
     setDataLoaded(true);
   };
 

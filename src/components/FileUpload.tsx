@@ -12,6 +12,7 @@ interface FileUploadProps {
 
 export default function FileUpload({ onDataLoaded }: FileUploadProps) {
   const [isUploading, setIsUploading] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
   const [investorData, setInvestorData] = useState<any[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -40,8 +41,8 @@ export default function FileUpload({ onDataLoaded }: FileUploadProps) {
       setInvestorData(data);
       
       toast({
-        title: "Investor data loaded",
-        description: `Loaded ${data.length} investor records with position data for both dates.`,
+        title: "File uploaded successfully",
+        description: `Loaded ${data.length} investor records. Click "Process Data" to analyze.`,
       });
       
     } catch (error) {
@@ -66,12 +67,29 @@ export default function FileUpload({ onDataLoaded }: FileUploadProps) {
       return;
     }
 
-    saveInvestorsData(investorData);
-    toast({
-      title: "Data processed successfully",
-      description: "Investor data has been processed and is ready for analysis.",
-    });
-    onDataLoaded();
+    setIsProcessing(true);
+    
+    try {
+      saveInvestorsData(investorData);
+      toast({
+        title: "Analysis complete",
+        description: `Successfully analyzed ${investorData.length} investors with position changes between the two dates.`,
+      });
+      
+      // Clear the upload state and trigger dashboard refresh
+      setFileName(null);
+      setInvestorData([]);
+      onDataLoaded();
+    } catch (error) {
+      console.error("Error processing data:", error);
+      toast({
+        title: "Processing failed",
+        description: "There was an error processing the data. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -99,13 +117,13 @@ export default function FileUpload({ onDataLoaded }: FileUploadProps) {
             type="button"
             onClick={() => fileInputRef.current?.click()}
             className="w-full bg-dashboard-teal hover:bg-dashboard-teal/80"
-            disabled={isUploading}
+            disabled={isUploading || isProcessing}
           >
             {isUploading ? "Processing..." : "Select Excel File"}
           </Button>
           {fileName && (
             <p className="text-sm text-dashboard-gray text-center">
-              ✓ {fileName} ({investorData.length} records)
+              ✓ {fileName} ({investorData.length} records loaded)
             </p>
           )}
         </div>
@@ -114,9 +132,10 @@ export default function FileUpload({ onDataLoaded }: FileUploadProps) {
         {investorData.length > 0 && (
           <Button 
             onClick={handleProcessData}
+            disabled={isProcessing}
             className="bg-green-600 hover:bg-green-700 text-white px-8 py-2"
           >
-            Process Investor Data
+            {isProcessing ? "Processing..." : "Process & Analyze Data"}
           </Button>
         )}
       </div>
