@@ -1,4 +1,5 @@
 
+
 import { read, utils } from "xlsx";
 import { Investor, FilterOptions, AnalyticsSummary, InvestorComparison } from "@/types";
 
@@ -47,13 +48,17 @@ export const parseExcelFile = async (file: File): Promise<Investor[]> => {
           const bought = parseNumber(row["Bought"]);
           const name = row["Name"] || "Unknown";
           
+          // Calculate position change and net activity
+          const positionChange = endPosition - startPosition;
+          const netActivity = bought - sold; // Net buying/selling activity
+          
           return {
             name,
-            boughtOn18: bought,
-            soldOn25: sold,
-            percentToEquity: endPosition, // Using end position as % to equity
+            boughtOn18: bought, // Keep for compatibility but represents "Bought" column
+            soldOn25: sold, // Keep for compatibility but represents "Sold" column  
+            percentToEquity: endPosition, // End position as % to equity
             category: row["Category"] || "Unknown",
-            netChange: bought - sold, // Net change calculation
+            netChange: positionChange, // This is the key metric - change in holdings between dates
             fundGroup: getFundGroup(name),
             startPosition,
             endPosition
@@ -89,6 +94,7 @@ export const mergeInvestorsByFundGroup = (investors: Investor[]): Investor[] => 
     totalSold: number;
     totalStartPosition: number;
     totalEndPosition: number;
+    totalPositionChange: number;
     category: string;
   }> = {};
 
@@ -103,6 +109,7 @@ export const mergeInvestorsByFundGroup = (investors: Investor[]): Investor[] => 
         totalSold: 0,
         totalStartPosition: 0,
         totalEndPosition: 0,
+        totalPositionChange: 0,
         category: investor.category
       };
     }
@@ -112,6 +119,7 @@ export const mergeInvestorsByFundGroup = (investors: Investor[]): Investor[] => 
     groupedData[group].totalSold += investor.soldOn25;
     groupedData[group].totalStartPosition += investor.startPosition || 0;
     groupedData[group].totalEndPosition += investor.endPosition || 0;
+    groupedData[group].totalPositionChange += investor.netChange || 0;
   });
 
   // Create merged investor records
@@ -121,7 +129,7 @@ export const mergeInvestorsByFundGroup = (investors: Investor[]): Investor[] => 
     soldOn25: data.totalSold,
     percentToEquity: data.totalEndPosition,
     category: data.category,
-    netChange: data.totalBought - data.totalSold,
+    netChange: data.totalPositionChange, // This represents total position change for the group
     fundGroup: group,
     startPosition: data.totalStartPosition,
     endPosition: data.totalEndPosition,
@@ -155,13 +163,14 @@ export const getOriginalInvestorsData = (): Investor[] => {
 // Analyze investor behavior based on position changes
 export const analyzeInvestorBehavior = (investors: Investor[]): InvestorComparison[] => {
   return investors.map(investor => {
-    const positionChange = (investor.endPosition || 0) - (investor.startPosition || 0);
-    const netActivity = investor.boughtOn18 - investor.soldOn25;
+    const positionChange = investor.netChange || 0; // This is the change between the two "As on" dates
+    const netActivity = investor.boughtOn18 - investor.soldOn25; // Bought vs Sold activity
     
     let behaviorType: InvestorComparison['behaviorType'] = 'holder';
     
-    if (netActivity > 1000) behaviorType = 'buyer';
-    else if (netActivity < -1000) behaviorType = 'seller';
+    // Determine behavior based on position change between dates
+    if (positionChange > 1000) behaviorType = 'buyer';
+    else if (positionChange < -1000) behaviorType = 'seller';
     else if ((investor.startPosition || 0) === 0 && (investor.endPosition || 0) > 0) behaviorType = 'new';
     else if ((investor.startPosition || 0) > 0 && (investor.endPosition || 0) === 0) behaviorType = 'exited';
     
@@ -175,10 +184,10 @@ export const analyzeInvestorBehavior = (investors: Investor[]): InvestorComparis
       month2: {
         ...investor,
         percentToEquity: investor.endPosition || 0,
-        netChange: netActivity
+        netChange: positionChange
       },
       behaviorType,
-      trendChange: positionChange,
+      trendChange: positionChange, // Change in position between the two dates
       fundGroup: investor.fundGroup || getFundGroup(investor.name)
     };
   });
@@ -246,7 +255,9 @@ export const generateAnalyticsSummary = (investors: Investor[]): AnalyticsSummar
   const totalInvestors = investors.length;
   const totalBought = investors.reduce((sum, investor) => sum + investor.boughtOn18, 0);
   const totalSold = investors.reduce((sum, investor) => sum + investor.soldOn25, 0);
-  const netPosition = totalBought - totalSold;
+  
+  // Calculate net position as the total change in holdings between the two dates
+  const netPosition = investors.reduce((sum, investor) => sum + (investor.netChange || 0), 0);
   
   // Find top categories by count
   const categoryCount: Record<string, number> = {};
@@ -262,8 +273,8 @@ export const generateAnalyticsSummary = (investors: Investor[]): AnalyticsSummar
     .sort((a, b) => b.count - a.count)
     .slice(0, 5);
   
-  // Find top gainer and seller
-  const sortedByNetChange = [...investors].sort((a, b) => 
+  // Find top gainer and seller based on position change between dates
+  const sortedByPositionChange = [...investors].sort((a, b) => 
     (b.netChange || 0) - (a.netChange || 0)
   );
   
@@ -273,8 +284,8 @@ export const generateAnalyticsSummary = (investors: Investor[]): AnalyticsSummar
     totalSold,
     netPosition,
     topCategories,
-    topGainer: sortedByNetChange[0] || null,
-    topSeller: sortedByNetChange[sortedByNetChange.length - 1] || null,
+    topGainer: sortedByPositionChange[0] || null,
+    topSeller: sortedByPositionChange[sortedByPositionChange.length - 1] || null,
   };
 };
 
