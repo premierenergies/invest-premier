@@ -1,5 +1,3 @@
-
-
 import { read, utils } from "xlsx";
 import { Investor, FilterOptions, AnalyticsSummary, InvestorComparison } from "@/types";
 
@@ -16,55 +14,44 @@ export const parseExcelFile = async (file: File): Promise<Investor[]> => {
         const worksheet = workbook.Sheets[sheetName];
         const json = utils.sheet_to_json(worksheet);
         
-        const investors: Investor[] = json.map((row: any) => {
-          // Handle the exact format from the image
-          const keys = Object.keys(row);
-          
-          // Find the date columns dynamically - looking for "As on" pattern
-          const startDateKey = keys.find(key => 
-            key.includes('As on') && 
-            !key.toLowerCase().includes('sold') && 
-            !key.toLowerCase().includes('bought') &&
-            keys.indexOf(key) < keys.findIndex(k => k.toLowerCase().includes('sold'))
-          );
-          
-          const endDateKey = keys.find(key => 
-            key.includes('As on') && 
-            !key.toLowerCase().includes('sold') && 
-            !key.toLowerCase().includes('bought') &&
-            keys.indexOf(key) > keys.findIndex(k => k.toLowerCase().includes('bought'))
-          );
-          
-          // Parse numeric values, handling commas
+        console.log("Raw Excel data:", json.slice(0, 3)); // Log first 3 rows for debugging
+        
+        const investors: Investor[] = json.map((row: any, index: number) => {
+          // Parse numeric values, handling commas and undefined values
           const parseNumber = (value: any): number => {
-            if (!value) return 0;
+            if (!value || value === '') return 0;
             const str = value.toString().replace(/,/g, '');
-            return parseFloat(str) || 0;
+            const num = parseFloat(str);
+            return isNaN(num) ? 0 : num;
           };
           
-          const startPosition = parseNumber(row[startDateKey || 'As on 02 May 2025']);
-          const endPosition = parseNumber(row[endDateKey || 'As on 30 May 2025']);
+          // Extract data based on your actual column structure
+          const name = row["Name"] || `Unknown-${index}`;
+          const startPosition = parseNumber(row["As on 02 May 2025"]);
+          const endPosition = parseNumber(row["As on  30 May 2025"]);
           const sold = parseNumber(row["Sold"]);
           const bought = parseNumber(row["Bought"]);
-          const name = row["Name"] || "Unknown";
+          const category = row["Category"] || "Unknown";
           
-          // Calculate position change and net activity
+          // Calculate position change between the two dates
           const positionChange = endPosition - startPosition;
-          const netActivity = bought - sold; // Net buying/selling activity
+          
+          console.log(`Processing ${name}: start=${startPosition}, end=${endPosition}, change=${positionChange}`);
           
           return {
             name,
-            boughtOn18: bought, // Keep for compatibility but represents "Bought" column
-            soldOn25: sold, // Keep for compatibility but represents "Sold" column  
-            percentToEquity: endPosition, // End position as % to equity
-            category: row["Category"] || "Unknown",
-            netChange: positionChange, // This is the key metric - change in holdings between dates
+            boughtOn18: bought, // Keep for compatibility
+            soldOn25: sold, // Keep for compatibility  
+            percentToEquity: endPosition, // End position
+            category,
+            netChange: positionChange, // This is the key metric - change between dates
             fundGroup: getFundGroup(name),
             startPosition,
             endPosition
           };
         });
         
+        console.log("Processed investors:", investors.length);
         resolve(investors);
       } catch (error) {
         console.error("Error parsing Excel file:", error);
@@ -123,26 +110,32 @@ export const mergeInvestorsByFundGroup = (investors: Investor[]): Investor[] => 
   });
 
   // Create merged investor records
-  return Object.entries(groupedData).map(([group, data]) => ({
+  const mergedInvestors = Object.entries(groupedData).map(([group, data]) => ({
     name: group,
     boughtOn18: data.totalBought,
     soldOn25: data.totalSold,
     percentToEquity: data.totalEndPosition,
     category: data.category,
-    netChange: data.totalPositionChange, // This represents total position change for the group
+    netChange: data.totalPositionChange,
     fundGroup: group,
     startPosition: data.totalStartPosition,
     endPosition: data.totalEndPosition,
-    individualInvestors: data.investors // Store individual investors for breakdown
+    individualInvestors: data.investors
   }));
+
+  console.log("Merged fund groups:", mergedInvestors.length, "from", investors.length, "individual investors");
+  return mergedInvestors;
 };
 
 // Save investors data to localStorage
 export const saveInvestorsData = (investorData: Investor[]): void => {
-  // Merge by fund groups before saving
-  const mergedData = mergeInvestorsByFundGroup(investorData);
+  // Only merge if we have more than 20 investors, otherwise keep individual records
+  const processedData = investorData.length > 20 
+    ? mergeInvestorsByFundGroup(investorData) 
+    : investorData;
   
-  localStorage.setItem("investorsData", JSON.stringify(mergedData));
+  console.log("Saving processed data:", processedData.length, "records");
+  localStorage.setItem("investorsData", JSON.stringify(processedData));
   
   // Also save original data for detailed breakdown if needed
   localStorage.setItem("originalInvestorsData", JSON.stringify(investorData));
@@ -163,8 +156,8 @@ export const getOriginalInvestorsData = (): Investor[] => {
 // Analyze investor behavior based on position changes
 export const analyzeInvestorBehavior = (investors: Investor[]): InvestorComparison[] => {
   return investors.map(investor => {
-    const positionChange = investor.netChange || 0; // This is the change between the two "As on" dates
-    const netActivity = investor.boughtOn18 - investor.soldOn25; // Bought vs Sold activity
+    const positionChange = investor.netChange || 0;
+    const netActivity = investor.boughtOn18 - investor.soldOn25;
     
     let behaviorType: InvestorComparison['behaviorType'] = 'holder';
     
@@ -187,7 +180,7 @@ export const analyzeInvestorBehavior = (investors: Investor[]): InvestorComparis
         netChange: positionChange
       },
       behaviorType,
-      trendChange: positionChange, // Change in position between the two dates
+      trendChange: positionChange,
       fundGroup: investor.fundGroup || getFundGroup(investor.name)
     };
   });
