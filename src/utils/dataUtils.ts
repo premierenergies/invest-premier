@@ -64,6 +64,24 @@ export const parseExcelFile = async (file: File): Promise<Investor[]> => {
   });
 };
 
+// Filter investors based on minimum shareholding and promoter exclusion
+export const filterInvestorsByConditions = (
+  investors: Investor[], 
+  minShares: number = 20000, 
+  excludePromoters: boolean = false
+): Investor[] => {
+  return investors.filter(investor => {
+    // Filter by minimum shares (using end position as primary criteria)
+    const hasMinShares = (investor.endPosition || investor.percentToEquity) >= minShares;
+    
+    // Filter out promoters if requested
+    const isNotPromoter = !excludePromoters || 
+      (investor.category && !investor.category.toLowerCase().includes('pro'));
+    
+    return hasMinShares && isNotPromoter;
+  });
+};
+
 // Extract fund group from investor name (first 2 words)
 export const getFundGroup = (name: string): string => {
   const words = name.trim().split(/\s+/);
@@ -335,4 +353,38 @@ export const compareInvestorBehavior = (month1: Investor[], month2: Investor[]):
   });
   
   return comparisons;
+};
+
+// Enhanced analytics for investor sentiment
+export const generateInvestorSentimentAnalysis = (investors: Investor[]) => {
+  const buyerCount = investors.filter(inv => (inv.netChange || 0) > 1000).length;
+  const sellerCount = investors.filter(inv => (inv.netChange || 0) < -1000).length;
+  const holderCount = investors.filter(inv => Math.abs(inv.netChange || 0) <= 1000).length;
+  
+  const totalVolumeBought = investors.reduce((sum, inv) => sum + inv.boughtOn18, 0);
+  const totalVolumeSold = investors.reduce((sum, inv) => sum + inv.soldOn25, 0);
+  
+  const avgPositionChange = investors.length > 0 
+    ? investors.reduce((sum, inv) => sum + (inv.netChange || 0), 0) / investors.length 
+    : 0;
+  
+  return {
+    buyerCount,
+    sellerCount,
+    holderCount,
+    totalVolumeBought,
+    totalVolumeSold,
+    avgPositionChange,
+    sentimentScore: buyerCount - sellerCount, // Positive = bullish, negative = bearish
+    marketActivity: totalVolumeBought + totalVolumeSold
+  };
+};
+
+// Get top movers (biggest position changes)
+export const getTopMovers = (investors: Investor[], count: number = 10) => {
+  const sorted = [...investors].sort((a, b) => Math.abs(b.netChange || 0) - Math.abs(a.netChange || 0));
+  return {
+    topGainers: sorted.filter(inv => (inv.netChange || 0) > 0).slice(0, count),
+    topSellers: sorted.filter(inv => (inv.netChange || 0) < 0).slice(0, count)
+  };
 };
