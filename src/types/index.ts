@@ -12,6 +12,21 @@ export interface Investor {
   individualInvestors?: Investor[]; // For merged fund groups, store individual investors
 }
 
+export interface MonthlyInvestorData {
+  name: string;
+  category: string;
+  description: string;
+  monthlyShares: Record<string, number>; // Key: YYYY-MM, Value: shares
+  fundGroup?: string;
+}
+
+export interface MonthlyDataFile {
+  date: string; // YYYY-MM format
+  fileName: string;
+  uploadDate: string;
+  recordCount: number;
+}
+
 export interface InvestorComparison {
   name: string;
   month1: Investor;
@@ -27,6 +42,9 @@ export interface FilterOptions {
   sortOrder: 'asc' | 'desc';
   searchQuery: string;
   fundGroup: string | null;
+  minShares?: number;
+  maxShares?: number;
+  selectedMonths?: string[];
 }
 
 export interface ChartData {
