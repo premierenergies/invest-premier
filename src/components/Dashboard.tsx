@@ -161,7 +161,7 @@ export default function Dashboard() {
               <CardHeader>
                 <CardTitle>Upload Monthly Data</CardTitle>
                 <CardDescription>
-                  Upload Excel files with monthly investor data. Each file should contain: NAME, SHARES on {date}, CATEGORY, DESCRIPTION
+                  Upload Excel files with monthly investor data. Each file should contain: NAME, SHARES on [date], CATEGORY, DESCRIPTION
                 </CardDescription>
               </CardHeader>
               <CardContent>
