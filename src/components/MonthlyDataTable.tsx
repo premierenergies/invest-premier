@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowDown, ArrowUp, Search, Eye } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { getMonthDisplayLabels } from "@/utils/csvUtils";
 
 interface MonthlyDataTableProps {
   data: MonthlyInvestorData[];
@@ -21,6 +22,8 @@ function FundBreakdownDialog({ investor }: { investor: MonthlyInvestorData }) {
   if (!investor.individualInvestors || investor.individualInvestors.length <= 1) {
     return null;
   }
+
+  const displayLabels = getMonthDisplayLabels(Object.keys(investor.individualInvestors[0].monthlyShares).sort());
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -43,26 +46,29 @@ function FundBreakdownDialog({ investor }: { investor: MonthlyInvestorData }) {
                 <TableHead>Investor Name</TableHead>
                 <TableHead>Category</TableHead>
                 <TableHead>Description</TableHead>
-                {Object.keys(investor.individualInvestors[0].monthlyShares).sort().map(month => (
-                  <TableHead key={month} className="text-right">{month}</TableHead>
+                {displayLabels.map((label, index) => (
+                  <TableHead key={index} className="text-right">{label}</TableHead>
                 ))}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {investor.individualInvestors.map((individual, index) => (
-                <TableRow key={index}>
-                  <TableCell className="font-medium">{individual.name}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{individual.category}</Badge>
-                  </TableCell>
-                  <TableCell>{individual.description}</TableCell>
-                  {Object.keys(investor.individualInvestors![0].monthlyShares).sort().map(month => (
-                    <TableCell key={month} className="text-right">
-                      {(individual.monthlyShares[month] || 0).toLocaleString()}
+              {investor.individualInvestors.map((individual, index) => {
+                const monthKeys = Object.keys(individual.monthlyShares).sort();
+                return (
+                  <TableRow key={index}>
+                    <TableCell className="font-medium">{individual.name}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{individual.category}</Badge>
                     </TableCell>
-                  ))}
-                </TableRow>
-              ))}
+                    <TableCell>{individual.description}</TableCell>
+                    {monthKeys.map(month => (
+                      <TableCell key={month} className="text-right">
+                        {(individual.monthlyShares[month] || 0).toLocaleString()}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </div>
@@ -79,11 +85,19 @@ export default function MonthlyDataTable({ data, availableMonths, categories }: 
   const [sortBy, setSortBy] = useState<string>("name");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
+  // Get display labels for the available months
+  const displayLabels = getMonthDisplayLabels(availableMonths);
+
   // Filter data
   const filteredData = data.filter(investor => {
-    // Search filter
-    if (searchQuery && !investor.name.toLowerCase().includes(searchQuery.toLowerCase())) {
-      return false;
+    // Search filter - fix blank issue
+    if (searchQuery && searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      const nameMatch = investor.name.toLowerCase().includes(query);
+      const descriptionMatch = investor.description?.toLowerCase().includes(query) || false;
+      if (!nameMatch && !descriptionMatch) {
+        return false;
+      }
     }
     
     // Category filter
@@ -234,15 +248,15 @@ export default function MonthlyDataTable({ data, availableMonths, categories }: 
                     {getSortIcon("category")}
                   </div>
                 </TableHead>
-                {availableMonths.map((month, index) => (
+                {displayLabels.map((label, index) => (
                   <TableHead 
-                    key={month}
+                    key={availableMonths[index]}
                     className="cursor-pointer text-right"
-                    onClick={() => handleSort(month)}
+                    onClick={() => handleSort(availableMonths[index])}
                   >
                     <div className="flex items-center justify-end">
-                      {month}
-                      {getSortIcon(month)}
+                      {label}
+                      {getSortIcon(availableMonths[index])}
                     </div>
                   </TableHead>
                 ))}

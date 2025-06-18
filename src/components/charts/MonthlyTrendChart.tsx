@@ -17,6 +17,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { MonthlyInvestorData } from '@/types';
+import { getMonthDisplayLabels } from '@/utils/csvUtils';
 
 ChartJS.register(
   CategoryScale,
@@ -57,8 +58,10 @@ export default function MonthlyTrendChart({ data, availableMonths, categories }:
     }
     
     if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
       filteredData = filteredData.filter(inv => 
-        inv.name.toLowerCase().includes(searchQuery.toLowerCase())
+        inv.name.toLowerCase().includes(query) || 
+        (inv.description && inv.description.toLowerCase().includes(query))
       );
     }
 
@@ -67,7 +70,10 @@ export default function MonthlyTrendChart({ data, availableMonths, categories }:
       filteredData = filteredData.filter(inv => inv.name === selectedInvestor);
     }
 
-    // Prepare datasets
+    // Get display labels for months
+    const displayLabels = getMonthDisplayLabels(availableMonths);
+
+    // Prepare datasets - show up to 10 investors/funds as lines
     const datasets = filteredData.slice(0, 10).map((investor, index) => {
       const colors = [
         'rgba(59, 130, 246, 1)',   // Blue
@@ -97,7 +103,7 @@ export default function MonthlyTrendChart({ data, availableMonths, categories }:
     });
 
     const chartData: ChartData<'line', number[], string> = {
-      labels: availableMonths,
+      labels: displayLabels, // Use readable date labels
       datasets
     };
 
@@ -115,7 +121,7 @@ export default function MonthlyTrendChart({ data, availableMonths, categories }:
         x: {
           title: {
             display: true,
-            text: 'Month'
+            text: 'Date'
           }
         }
       },
@@ -151,17 +157,19 @@ export default function MonthlyTrendChart({ data, availableMonths, categories }:
     };
   }, [data, availableMonths, selectedCategory, searchQuery, selectedInvestor]);
 
-  // Get investors for search dropdown
-  const searchResults = data.filter(inv => 
-    inv.name.toLowerCase().includes(searchQuery.toLowerCase())
-  ).slice(0, 10);
+  // Get investors for search dropdown - fix the filtering logic
+  const searchResults = searchQuery.trim() ? data.filter(inv => {
+    const query = searchQuery.toLowerCase().trim();
+    return inv.name.toLowerCase().includes(query) || 
+           (inv.description && inv.description.toLowerCase().includes(query));
+  }).slice(0, 10) : [];
 
   return (
     <Card className="col-span-full">
       <CardHeader>
         <CardTitle>Month-over-Month Trends</CardTitle>
         <CardDescription>
-          Track investor position changes across months
+          Track investor position changes across months. Shows lines for each investor/fund.
         </CardDescription>
         <div className="flex flex-wrap gap-4 items-center">
           <Select value={selectedCategory} onValueChange={setSelectedCategory}>
@@ -186,7 +194,7 @@ export default function MonthlyTrendChart({ data, availableMonths, categories }:
             />
           </div>
           
-          {searchResults.length > 0 && searchQuery && (
+          {searchResults.length > 0 && searchQuery.trim() && (
             <Select value={selectedInvestor} onValueChange={setSelectedInvestor}>
               <SelectTrigger className="w-[200px]">
                 <SelectValue placeholder="Select specific investor" />
@@ -207,6 +215,11 @@ export default function MonthlyTrendChart({ data, availableMonths, categories }:
         <div className="h-[400px]">
           <canvas ref={chartRef} />
         </div>
+        {filteredData.length > 10 && (
+          <p className="text-sm text-muted-foreground mt-2">
+            Showing top 10 results. Use filters to narrow down the selection.
+          </p>
+        )}
       </CardContent>
     </Card>
   );

@@ -26,8 +26,8 @@ export const parseMonthlyExcelFile = async (file: File): Promise<{
         const dateMatch = sharesHeader?.match(/(?:SHARES (?:AS )?ON|AS ON)\s+(.+)/i);
         const extractedDate = dateMatch ? dateMatch[1] : new Date().toISOString().slice(0, 7);
         
-        // Convert to YYYY-MM format
-        const date = formatDateToYYYYMM(extractedDate);
+        // Convert to readable format and store both formats
+        const { dateKey, displayDate } = formatDateToReadable(extractedDate);
         
         const monthlyData: MonthlyInvestorData[] = json.map((row: any, index: number) => {
           const parseNumber = (value: any): number => {
@@ -46,13 +46,13 @@ export const parseMonthlyExcelFile = async (file: File): Promise<{
             name,
             category,
             description,
-            monthlyShares: { [date]: shares },
+            monthlyShares: { [dateKey]: shares },
             fundGroup: getFundGroup(name)
           };
         });
         
-        console.log(`Processed monthly data for ${date}:`, monthlyData.length, "records");
-        resolve({ date, data: monthlyData });
+        console.log(`Processed monthly data for ${displayDate}:`, monthlyData.length, "records");
+        resolve({ date: dateKey, data: monthlyData });
       } catch (error) {
         console.error("Error parsing monthly Excel file:", error);
         reject(error);
@@ -64,31 +64,54 @@ export const parseMonthlyExcelFile = async (file: File): Promise<{
   });
 };
 
-// Format date string to YYYY-MM
-const formatDateToYYYYMM = (dateStr: string): string => {
+// Format date string to readable format and return both key and display
+const formatDateToReadable = (dateStr: string): { dateKey: string; displayDate: string } => {
   try {
     // Handle various date formats
     const cleanDate = dateStr.replace(/st|nd|rd|th/g, '').trim();
-    const date = new Date(cleanDate);
-    if (!isNaN(date.getTime())) {
-      return date.toISOString().slice(0, 7);
+    
+    // Try parsing the date directly
+    let date = new Date(cleanDate);
+    
+    // If direct parsing fails, try manual parsing
+    if (isNaN(date.getTime())) {
+      const monthNames = ['january', 'february', 'march', 'april', 'may', 'june',
+                         'july', 'august', 'september', 'october', 'november', 'december'];
+      const parts = cleanDate.toLowerCase().split(/\s+/);
+      const monthIndex = monthNames.findIndex(month => parts.some(part => part.includes(month.slice(0, 3))));
+      const year = parts.find(part => /20\d{2}/.test(part));
+      const day = parts.find(part => /^\d{1,2}$/.test(part));
+      
+      if (monthIndex !== -1 && year) {
+        date = new Date(parseInt(year), monthIndex, parseInt(day || '1'));
+      } else {
+        date = new Date();
+      }
     }
     
-    // Fallback: try to extract month and year
-    const monthNames = ['january', 'february', 'march', 'april', 'may', 'june',
-                       'july', 'august', 'september', 'october', 'november', 'december'];
-    const parts = cleanDate.toLowerCase().split(/\s+/);
-    const monthIndex = monthNames.findIndex(month => parts.some(part => part.includes(month.slice(0, 3))));
-    const year = parts.find(part => /20\d{2}/.test(part));
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const day = date.getDate();
     
-    if (monthIndex !== -1 && year) {
-      return `${year}-${String(monthIndex + 1).padStart(2, '0')}`;
-    }
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     
-    // Final fallback
-    return new Date().toISOString().slice(0, 7);
+    const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const displayDate = `${monthNames[month]} ${day}, ${year}`;
+    
+    return { dateKey, displayDate };
   } catch {
-    return new Date().toISOString().slice(0, 7);
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const day = now.getDate();
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    return {
+      dateKey: `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+      displayDate: `${monthNames[month]} ${day}, ${year}`
+    };
   }
 };
 
@@ -230,13 +253,21 @@ export const exportToExcel = async (): Promise<void> => {
   
   const { utils, write } = await import('xlsx');
   
-  // Get all unique months
+  // Get all unique months and sort them properly
   const allMonths = Array.from(new Set(
     data.flatMap(investor => Object.keys(investor.monthlyShares))
   )).sort();
   
+  // Convert date keys to display format for headers
+  const displayHeaders = allMonths.map(dateKey => {
+    const date = new Date(dateKey);
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${monthNames[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+  });
+  
   // Create header row
-  const headers = ['Name', 'Category', 'Description', 'Fund Group', ...allMonths];
+  const headers = ['Name', 'Category', 'Description', 'Fund Group', ...displayHeaders];
   
   // Create data rows
   const rows = data.map(investor => [
@@ -329,7 +360,7 @@ export const exportToCSV = (): void => {
   window.URL.revokeObjectURL(url);
 };
 
-// Get available months for filtering
+// Get available months for filtering with proper display format
 export const getAvailableMonths = (): string[] => {
   const data = getMonthlyCSVData();
   const months = new Set<string>();
@@ -341,6 +372,16 @@ export const getAvailableMonths = (): string[] => {
   });
   
   return Array.from(months).sort();
+};
+
+// Get display labels for months
+export const getMonthDisplayLabels = (months: string[]): string[] => {
+  return months.map(dateKey => {
+    const date = new Date(dateKey);
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${monthNames[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+  });
 };
 
 // Filter monthly data based on criteria
@@ -360,9 +401,14 @@ export const filterMonthlyData = (
       return false;
     }
     
-    // Search filter
-    if (filters.searchQuery && !investor.name.toLowerCase().includes(filters.searchQuery.toLowerCase())) {
-      return false;
+    // Search filter - fix the blank issue
+    if (filters.searchQuery && filters.searchQuery.trim()) {
+      const query = filters.searchQuery.toLowerCase().trim();
+      const nameMatch = investor.name.toLowerCase().includes(query);
+      const descriptionMatch = investor.description?.toLowerCase().includes(query) || false;
+      if (!nameMatch && !descriptionMatch) {
+        return false;
+      }
     }
     
     // Share count filters
