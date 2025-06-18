@@ -140,40 +140,27 @@ export default function Dashboard() {
   const analyticsSummary = generateAnalyticsSummary(investors);
 
   // Show initial upload screen if no data is loaded
-  if (!dataLoaded && !monthlyDataLoaded) {
+  if (!monthlyDataLoaded) {
     return (
       <div className="space-y-8">
         <div className="text-center">
           <h1 className="text-3xl font-bold tracking-tight">Investor Analytics Dashboard</h1>
           <p className="text-muted-foreground mt-2">
-            Choose your data format to get started
+            Upload your monthly investor data to get started
           </p>
         </div>
         
-        <Tabs defaultValue="monthly" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="monthly">Monthly Data (New)</TabsTrigger>
-            <TabsTrigger value="legacy">Legacy Format</TabsTrigger>
-          </TabsList>
-          
-          <TabsContent value="monthly" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Upload Monthly Data</CardTitle>
-                <CardDescription>
-                  Upload Excel files with monthly investor data. Each file should contain: NAME, SHARES on [date], CATEGORY, DESCRIPTION
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <MonthlyFileUpload onDataLoaded={handleMonthlyDataLoaded} />
-              </CardContent>
-            </Card>
-          </TabsContent>
-          
-          <TabsContent value="legacy" className="space-y-4">
-            <FileUpload onDataLoaded={handleDataLoaded} />
-          </TabsContent>
-        </Tabs>
+        <Card>
+          <CardHeader>
+            <CardTitle>Upload Monthly Data</CardTitle>
+            <CardDescription>
+              Upload Excel files with monthly investor data. Each file should contain: NAME, SHARES AS ON [date], CATEGORY, DESCRIPTION
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MonthlyFileUpload onDataLoaded={handleMonthlyDataLoaded} />
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -184,135 +171,106 @@ export default function Dashboard() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Investor Analytics Dashboard</h1>
           <p className="text-muted-foreground">
-            {monthlyDataLoaded 
-              ? `Monthly analysis across ${availableMonths.length} months (${monthlyData.length} investors)`
-              : `Legacy analysis (Min 20,000 shares, ${investors.length} investors)`
-            }
+            Monthly analysis across {availableMonths.length} months ({monthlyData.length} investors/fund groups)
           </p>
         </div>
         <div className="flex items-center space-x-4">
-          {dataLoaded && (
-            <Card className="p-4">
-              <div className="flex items-center space-x-2">
-                <Switch
-                  id="exclude-promoters"
-                  checked={excludePromoters}
-                  onCheckedChange={setExcludePromoters}
-                />
-                <Label htmlFor="exclude-promoters">Exclude Promoters</Label>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Filter out promoter category investors
-              </p>
-            </Card>
-          )}
           <MonthlyFileUpload onDataLoaded={handleMonthlyDataLoaded} />
-          {dataLoaded && <FileUpload onDataLoaded={handleDataLoaded} />}
         </div>
       </div>
 
-      {monthlyDataLoaded && (
-        <Tabs defaultValue="monthly" className="w-full">
-          <TabsList>
-            <TabsTrigger value="monthly">Monthly Trends</TabsTrigger>
-            <TabsTrigger value="table">Data Table</TabsTrigger>
-            {dataLoaded && <TabsTrigger value="legacy">Legacy Analysis</TabsTrigger>}
-          </TabsList>
-          
-          <TabsContent value="monthly" className="space-y-6">
-            <MonthlyTrendChart 
-              data={monthlyData} 
-              availableMonths={availableMonths}
-              categories={monthlyCategories}
-            />
-          </TabsContent>
-          
-          <TabsContent value="table" className="space-y-6">
-            <MonthlyDataTable 
-              data={monthlyData}
-              availableMonths={availableMonths}
-              categories={monthlyCategories}
-            />
-          </TabsContent>
-          
-          {dataLoaded && (
-            <TabsContent value="legacy" className="space-y-6">
-              {/* Legacy analysis content */}
-              <AnalyticsSummary summary={analyticsSummary} />
+      <Tabs defaultValue="trends" className="w-full">
+        <TabsList>
+          <TabsTrigger value="trends">Monthly Trends</TabsTrigger>
+          <TabsTrigger value="analytics">Analytics</TabsTrigger>
+          <TabsTrigger value="table">Data Table</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="trends" className="space-y-6">
+          <MonthlyTrendChart 
+            data={monthlyData} 
+            availableMonths={availableMonths}
+            categories={monthlyCategories}
+          />
+        </TabsContent>
+        
+        <TabsContent value="analytics" className="space-y-6">
+          {/* Convert monthly data to legacy format for charts */}
+          {(() => {
+            if (availableMonths.length < 2) {
+              return (
+                <Card>
+                  <CardContent className="p-6">
+                    <p className="text-center text-muted-foreground">
+                      Upload at least 2 months of data to see analytics charts
+                    </p>
+                  </CardContent>
+                </Card>
+              );
+            }
 
-              <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
-                <InvestorSentimentChart investors={investors} />
-                <TopMoversChart investors={investors} />
-              </div>
-
-              {investorComparisons.length > 0 && (
-                <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
-                  <BehaviorAnalysisChart comparisons={investorComparisons} />
-                  <FundGroupChart comparisons={investorComparisons} />
-                </div>
-              )}
-
-              <div className="grid gap-4 grid-cols-1 lg:grid-cols-3">
-                <NetPositionChart investors={investors} />
-                <CategoryDistribution investors={investors} />
-                <VolumeAnalysisChart investors={investors} />
-              </div>
+            // Convert monthly data to legacy format for existing charts
+            const legacyInvestors: Investor[] = monthlyData.map(investor => {
+              const months = Object.keys(investor.monthlyShares).sort();
+              const firstMonth = months[0];
+              const lastMonth = months[months.length - 1];
               
-              <TrendAnalysis investors={investors} />
-              <InvestorTrendChart investors={investors} />
+              const startShares = investor.monthlyShares[firstMonth] || 0;
+              const endShares = investor.monthlyShares[lastMonth] || 0;
+              
+              return {
+                name: investor.name,
+                boughtOn18: Math.max(0, endShares - startShares),
+                soldOn25: Math.max(0, startShares - endShares),
+                percentToEquity: 0, // Calculate if needed
+                category: investor.category,
+                netChange: endShares - startShares,
+                fundGroup: investor.fundGroup,
+                startPosition: startShares,
+                endPosition: endShares,
+              };
+            });
 
-              <div className="space-y-4">
-                <h2 className="text-2xl font-bold tracking-tight">Investor Data</h2>
-                <InvestorTable
-                  investors={filteredInvestors}
-                  categories={categories}
-                  fundGroups={fundGroups}
-                  filters={filters}
-                  onFilterChange={handleFilterChange}
-                />
-              </div>
-            </TabsContent>
-          )}
-        </Tabs>
-      )}
+            const legacyComparisons = analyzeInvestorBehavior(legacyInvestors);
+            const legacySummary = generateAnalyticsSummary(legacyInvestors);
 
-      {!monthlyDataLoaded && dataLoaded && (
-        <>
-          <AnalyticsSummary summary={analyticsSummary} />
+            return (
+              <>
+                <AnalyticsSummary summary={legacySummary} />
 
-          <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
-            <InvestorSentimentChart investors={investors} />
-            <TopMoversChart investors={investors} />
-          </div>
+                <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
+                  <InvestorSentimentChart investors={legacyInvestors} />
+                  <TopMoversChart investors={legacyInvestors} />
+                </div>
 
-          {investorComparisons.length > 0 && (
-            <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
-              <BehaviorAnalysisChart comparisons={investorComparisons} />
-              <FundGroupChart comparisons={investorComparisons} />
-            </div>
-          )}
+                {legacyComparisons.length > 0 && (
+                  <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
+                    <BehaviorAnalysisChart comparisons={legacyComparisons} />
+                    <FundGroupChart comparisons={legacyComparisons} />
+                  </div>
+                )}
 
-          <div className="grid gap-4 grid-cols-1 lg:grid-cols-3">
-            <NetPositionChart investors={investors} />
-            <CategoryDistribution investors={investors} />
-            <VolumeAnalysisChart investors={investors} />
-          </div>
-          
-          <TrendAnalysis investors={investors} />
-          <InvestorTrendChart investors={investors} />
-
-          <div className="space-y-4">
-            <h2 className="text-2xl font-bold tracking-tight">Investor Data</h2>
-            <InvestorTable
-              investors={filteredInvestors}
-              categories={categories}
-              fundGroups={fundGroups}
-              filters={filters}
-              onFilterChange={handleFilterChange}
-            />
-          </div>
-        </>
-      )}
+                <div className="grid gap-4 grid-cols-1 lg:grid-cols-3">
+                  <NetPositionChart investors={legacyInvestors} />
+                  <CategoryDistribution investors={legacyInvestors} />
+                  <VolumeAnalysisChart investors={legacyInvestors} />
+                </div>
+                
+                <TrendAnalysis investors={legacyInvestors} />
+                <InvestorTrendChart investors={legacyInvestors} />
+              </>
+            );
+          })()}
+        </TabsContent>
+        
+        <TabsContent value="table" className="space-y-6">
+          <MonthlyDataTable 
+            data={monthlyData}
+            availableMonths={availableMonths}
+            categories={monthlyCategories}
+          />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

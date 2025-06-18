@@ -5,13 +5,70 @@ import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { ArrowDown, ArrowUp, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, Search, Eye } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 interface MonthlyDataTableProps {
   data: MonthlyInvestorData[];
   availableMonths: string[];
   categories: string[];
+}
+
+function FundBreakdownDialog({ investor }: { investor: MonthlyInvestorData }) {
+  const [open, setOpen] = useState(false);
+
+  if (!investor.individualInvestors || investor.individualInvestors.length <= 1) {
+    return null;
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+          <Eye className="h-3 w-3" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{investor.name} - Individual Investors</DialogTitle>
+          <DialogDescription>
+            Breakdown of {investor.individualInvestors.length} individual investors in this fund group
+          </DialogDescription>
+        </DialogHeader>
+        <div className="mt-4 overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Investor Name</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead>Description</TableHead>
+                {Object.keys(investor.individualInvestors[0].monthlyShares).sort().map(month => (
+                  <TableHead key={month} className="text-right">{month}</TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {investor.individualInvestors.map((individual, index) => (
+                <TableRow key={index}>
+                  <TableCell className="font-medium">{individual.name}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline">{individual.category}</Badge>
+                  </TableCell>
+                  <TableCell>{individual.description}</TableCell>
+                  {Object.keys(investor.individualInvestors![0].monthlyShares).sort().map(month => (
+                    <TableCell key={month} className="text-right">
+                      {(individual.monthlyShares[month] || 0).toLocaleString()}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export default function MonthlyDataTable({ data, availableMonths, categories }: MonthlyDataTableProps) {
@@ -158,12 +215,13 @@ export default function MonthlyDataTable({ data, availableMonths, categories }: 
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/50">
+                <TableHead className="w-8"></TableHead>
                 <TableHead 
                   className="cursor-pointer"
                   onClick={() => handleSort("name")}
                 >
                   <div className="flex items-center">
-                    Investor Name
+                    Fund Group / Investor
                     {getSortIcon("name")}
                   </div>
                 </TableHead>
@@ -193,14 +251,24 @@ export default function MonthlyDataTable({ data, availableMonths, categories }: 
             <TableBody>
               {sortedData.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={2 + availableMonths.length} className="h-24 text-center">
+                  <TableCell colSpan={3 + availableMonths.length} className="h-24 text-center">
                     No investors found.
                   </TableCell>
                 </TableRow>
               ) : (
                 sortedData.map((investor) => (
                   <TableRow key={investor.name}>
-                    <TableCell className="font-medium">{investor.name}</TableCell>
+                    <TableCell>
+                      <FundBreakdownDialog investor={investor} />
+                    </TableCell>
+                    <TableCell className="font-medium">
+                      {investor.name}
+                      {investor.individualInvestors && investor.individualInvestors.length > 1 && (
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          ({investor.individualInvestors.length} entities)
+                        </span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Badge variant="outline">{investor.category}</Badge>
                     </TableCell>

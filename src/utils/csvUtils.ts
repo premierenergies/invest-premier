@@ -1,4 +1,3 @@
-
 import { MonthlyInvestorData, MonthlyDataFile } from '@/types';
 
 // Parse monthly Excel file and extract data
@@ -23,8 +22,8 @@ export const parseMonthlyExcelFile = async (file: File): Promise<{
         
         // Extract date from filename or first column header
         const headers = Object.keys(json[0] || {});
-        const sharesHeader = headers.find(h => h.includes('SHARES on'));
-        const dateMatch = sharesHeader?.match(/SHARES on (.+)/);
+        const sharesHeader = headers.find(h => h.includes('SHARES') || h.includes('AS ON'));
+        const dateMatch = sharesHeader?.match(/(?:SHARES (?:AS )?ON|AS ON)\s+(.+)/i);
         const extractedDate = dateMatch ? dateMatch[1] : new Date().toISOString().slice(0, 7);
         
         // Convert to YYYY-MM format
@@ -68,10 +67,27 @@ export const parseMonthlyExcelFile = async (file: File): Promise<{
 // Format date string to YYYY-MM
 const formatDateToYYYYMM = (dateStr: string): string => {
   try {
-    const date = new Date(dateStr);
-    return date.toISOString().slice(0, 7);
+    // Handle various date formats
+    const cleanDate = dateStr.replace(/st|nd|rd|th/g, '').trim();
+    const date = new Date(cleanDate);
+    if (!isNaN(date.getTime())) {
+      return date.toISOString().slice(0, 7);
+    }
+    
+    // Fallback: try to extract month and year
+    const monthNames = ['january', 'february', 'march', 'april', 'may', 'june',
+                       'july', 'august', 'september', 'october', 'november', 'december'];
+    const parts = cleanDate.toLowerCase().split(/\s+/);
+    const monthIndex = monthNames.findIndex(month => parts.some(part => part.includes(month.slice(0, 3))));
+    const year = parts.find(part => /20\d{2}/.test(part));
+    
+    if (monthIndex !== -1 && year) {
+      return `${year}-${String(monthIndex + 1).padStart(2, '0')}`;
+    }
+    
+    // Final fallback
+    return new Date().toISOString().slice(0, 7);
   } catch {
-    // Fallback to current month if parsing fails
     return new Date().toISOString().slice(0, 7);
   }
 };
@@ -85,6 +101,57 @@ const getFundGroup = (name: string): string => {
   return words[0]?.toUpperCase() || "UNKNOWN";
 };
 
+// Group investors by fund group (first two words of name)
+export const groupInvestorsByFund = (investors: MonthlyInvestorData[]): MonthlyInvestorData[] => {
+  const grouped = new Map<string, MonthlyInvestorData[]>();
+  
+  // Group by fund group
+  investors.forEach(investor => {
+    const fundGroup = getFundGroup(investor.name);
+    if (!grouped.has(fundGroup)) {
+      grouped.set(fundGroup, []);
+    }
+    grouped.get(fundGroup)!.push(investor);
+  });
+  
+  // Create grouped investors
+  const result: MonthlyInvestorData[] = [];
+  
+  grouped.forEach((groupInvestors, fundGroup) => {
+    if (groupInvestors.length === 1) {
+      // Single investor, keep as is
+      result.push(groupInvestors[0]);
+    } else {
+      // Multiple investors, create grouped entry
+      const combinedShares: Record<string, number> = {};
+      
+      // Combine shares across all months
+      groupInvestors.forEach(investor => {
+        Object.entries(investor.monthlyShares).forEach(([month, shares]) => {
+          if (!combinedShares[month]) {
+            combinedShares[month] = 0;
+          }
+          combinedShares[month] += shares;
+        });
+      });
+      
+      // Use the category and description from the first investor
+      const mainInvestor = groupInvestors[0];
+      
+      result.push({
+        name: fundGroup,
+        category: mainInvestor.category,
+        description: `Grouped fund (${groupInvestors.length} entities)`,
+        monthlyShares: combinedShares,
+        fundGroup,
+        individualInvestors: groupInvestors
+      });
+    }
+  });
+  
+  return result;
+};
+
 // Save monthly data to localStorage and merge with existing CSV data
 export const saveMonthlyData = (newDate: string, newData: MonthlyInvestorData[], fileName: string): void => {
   const existingData = getMonthlyCSVData();
@@ -93,8 +160,11 @@ export const saveMonthlyData = (newDate: string, newData: MonthlyInvestorData[],
   // Merge new data with existing
   const mergedData = mergeMonthlyData(existingData, newData, newDate);
   
+  // Group by fund groups
+  const groupedData = groupInvestorsByFund(mergedData);
+  
   // Save merged data
-  localStorage.setItem("monthlyCSVData", JSON.stringify(mergedData));
+  localStorage.setItem("monthlyCSVData", JSON.stringify(groupedData));
   
   // Track uploaded files
   const newFile: MonthlyDataFile = {
@@ -107,7 +177,7 @@ export const saveMonthlyData = (newDate: string, newData: MonthlyInvestorData[],
   const updatedFiles = [...existingFiles.filter(f => f.date !== newDate), newFile];
   localStorage.setItem("uploadedFiles", JSON.stringify(updatedFiles));
   
-  console.log(`Saved monthly data for ${newDate}. Total investors:`, mergedData.length);
+  console.log(`Saved monthly data for ${newDate}. Total investors:`, groupedData.length);
 };
 
 // Get monthly CSV data from localStorage
@@ -153,11 +223,78 @@ const mergeMonthlyData = (
   return Array.from(merged.values());
 };
 
+// Export data to Excel with color formatting
+export const exportToExcel = async (): Promise<void> => {
+  const data = getMonthlyCSVData();
+  if (data.length === 0) return;
+  
+  const { utils, write } = await import('xlsx');
+  
+  // Get all unique months
+  const allMonths = Array.from(new Set(
+    data.flatMap(investor => Object.keys(investor.monthlyShares))
+  )).sort();
+  
+  // Create header row
+  const headers = ['Name', 'Category', 'Description', 'Fund Group', ...allMonths];
+  
+  // Create data rows
+  const rows = data.map(investor => [
+    investor.name,
+    investor.category,
+    investor.description,
+    investor.fundGroup || '',
+    ...allMonths.map(month => investor.monthlyShares[month] || 0)
+  ]);
+  
+  // Create worksheet
+  const worksheet = utils.aoa_to_sheet([headers, ...rows]);
+  
+  // Add color formatting to month columns
+  const range = utils.decode_range(worksheet['!ref'] || 'A1');
+  for (let row = 1; row <= range.e.r; row++) {
+    for (let col = 4; col < headers.length; col++) { // Start from month columns
+      const monthIndex = col - 4;
+      if (monthIndex > 0) {
+        const cellAddress = utils.encode_cell({ r: row, c: col });
+        const prevCellAddress = utils.encode_cell({ r: row, c: col - 1 });
+        
+        const currentValue = worksheet[cellAddress]?.v || 0;
+        const prevValue = worksheet[prevCellAddress]?.v || 0;
+        
+        let fill;
+        if (currentValue > prevValue) {
+          fill = { fgColor: { rgb: "DCFCE7" } }; // Light green
+        } else if (currentValue < prevValue) {
+          fill = { fgColor: { rgb: "FEE2E2" } }; // Light red
+        } else {
+          fill = { fgColor: { rgb: "E0F2FE" } }; // Light blue
+        }
+        
+        if (!worksheet[cellAddress]) worksheet[cellAddress] = {};
+        worksheet[cellAddress].s = { fill };
+      }
+    }
+  }
+  
+  // Create workbook and download
+  const workbook = utils.book_new();
+  utils.book_append_sheet(workbook, worksheet, 'Investor Data');
+  
+  const excelBuffer = write(workbook, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `investor_data_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  link.click();
+  window.URL.revokeObjectURL(url);
+};
+
 // Export CSV data as downloadable file
 export const exportToCSV = (): void => {
   const data = getMonthlyCSVData();
-  const files = getUploadedFiles();
-  
   if (data.length === 0) return;
   
   // Get all unique months

@@ -18,6 +18,7 @@ export interface MonthlyInvestorData {
   description: string;
   monthlyShares: Record<string, number>; // Key: YYYY-MM, Value: shares
   fundGroup?: string;
+  individualInvestors?: MonthlyInvestorData[]; // For grouped funds
 }
 
 export interface MonthlyDataFile {

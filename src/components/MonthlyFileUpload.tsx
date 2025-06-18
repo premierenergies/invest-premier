@@ -1,11 +1,10 @@
 
 import { useState, useRef } from "react";
-import { parseMonthlyExcelFile, saveMonthlyData } from "@/utils/csvUtils";
+import { parseMonthlyExcelFile, saveMonthlyData, exportToExcel } from "@/utils/csvUtils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
-import { Upload, Download } from "lucide-react";
-import { exportToCSV } from "@/utils/csvUtils";
+import { Upload, Download, FileSpreadsheet } from "lucide-react";
 
 interface MonthlyFileUploadProps {
   onDataLoaded: () => void;
@@ -13,48 +12,56 @@ interface MonthlyFileUploadProps {
 
 export default function MonthlyFileUpload({ onDataLoaded }: MonthlyFileUploadProps) {
   const [isUploading, setIsUploading] = useState(false);
-  const [fileName, setFileName] = useState<string | null>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
 
-    console.log("Monthly file selected:", file.name);
-
-    // Check if it's an Excel file
-    if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
-      toast({
-        title: "Invalid file type",
-        description: "Please upload an Excel file (.xlsx or .xls)",
-        variant: "destructive",
-      });
-      return;
-    }
-
+    console.log("Monthly files selected:", files.length);
     setIsUploading(true);
 
     try {
-      console.log("Starting monthly file parsing...");
-      const { date, data } = await parseMonthlyExcelFile(file);
-      console.log(`Parsed monthly data for ${date}:`, data.length, "records");
-      
-      saveMonthlyData(date, data, file.name);
-      setFileName(file.name);
+      let totalProcessed = 0;
+      const processedFiles: string[] = [];
+
+      for (const file of files) {
+        // Check if it's an Excel file
+        if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+          toast({
+            title: "Invalid file type",
+            description: `Skipping ${file.name} - Please upload Excel files only (.xlsx or .xls)`,
+            variant: "destructive",
+          });
+          continue;
+        }
+
+        console.log(`Processing file: ${file.name}`);
+        const { date, data } = await parseMonthlyExcelFile(file);
+        
+        saveMonthlyData(date, data, file.name);
+        totalProcessed += data.length;
+        processedFiles.push(file.name);
+        
+        console.log(`Processed ${file.name} for ${date}: ${data.length} records`);
+      }
+
+      setUploadedFiles(prev => [...prev, ...processedFiles]);
       
       toast({
-        title: "Monthly data uploaded successfully",
-        description: `Loaded ${data.length} investor records for ${date}`,
+        title: "Files uploaded successfully",
+        description: `Processed ${processedFiles.length} files with ${totalProcessed} total investor records`,
       });
       
       onDataLoaded();
       
     } catch (error) {
-      console.error("Error uploading monthly file:", error);
+      console.error("Error uploading files:", error);
       toast({
-        title: "Error uploading file",
-        description: "There was an error processing your monthly file. Please check the format and try again.",
+        title: "Error uploading files",
+        description: "There was an error processing your files. Please check the format and try again.",
         variant: "destructive",
       });
     } finally {
@@ -65,12 +72,20 @@ export default function MonthlyFileUpload({ onDataLoaded }: MonthlyFileUploadPro
     }
   };
 
-  const handleExportCSV = () => {
-    exportToCSV();
-    toast({
-      title: "CSV exported",
-      description: "Your monthly investor data has been downloaded as CSV",
-    });
+  const handleExportExcel = async () => {
+    try {
+      await exportToExcel();
+      toast({
+        title: "Excel exported",
+        description: "Your investor data has been downloaded as Excel with color formatting",
+      });
+    } catch (error) {
+      toast({
+        title: "Export failed",
+        description: "There was an error exporting to Excel",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -81,6 +96,7 @@ export default function MonthlyFileUpload({ onDataLoaded }: MonthlyFileUploadPro
         accept=".xlsx,.xls"
         onChange={handleFileUpload}
         className="hidden"
+        multiple
       />
       <Button 
         type="button"
@@ -94,17 +110,17 @@ export default function MonthlyFileUpload({ onDataLoaded }: MonthlyFileUploadPro
       </Button>
       
       <Button 
-        onClick={handleExportCSV}
+        onClick={handleExportExcel}
         variant="outline"
         size="sm"
       >
-        <Download className="w-4 h-4 mr-2" />
-        Export CSV
+        <FileSpreadsheet className="w-4 h-4 mr-2" />
+        Export Excel
       </Button>
       
-      {fileName && (
+      {uploadedFiles.length > 0 && (
         <span className="text-sm text-green-600">
-          ✓ {fileName}
+          ✓ {uploadedFiles.length} file(s) uploaded
         </span>
       )}
     </div>
