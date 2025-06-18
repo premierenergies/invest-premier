@@ -51,14 +51,14 @@ export default function MonthlyTrendChart({ data, availableMonths, categories }:
       chartInstance.current.destroy();
     }
 
-    // Filter data based on selected filters
+    // Filter data based on selected filters - fix the filtering logic
     let filteredData = data;
     
     if (selectedCategory !== "all") {
       filteredData = filteredData.filter(inv => inv.category === selectedCategory);
     }
     
-    if (searchQuery.trim()) {
+    if (searchQuery && searchQuery.trim().length > 0) {
       const query = searchQuery.toLowerCase().trim();
       filteredData = filteredData.filter(inv => 
         inv.name.toLowerCase().includes(query) || 
@@ -67,7 +67,7 @@ export default function MonthlyTrendChart({ data, availableMonths, categories }:
     }
 
     // If specific investor selected, show only that investor
-    if (selectedInvestor) {
+    if (selectedInvestor && selectedInvestor.trim().length > 0) {
       filteredData = filteredData.filter(inv => inv.name === selectedInvestor);
     }
 
@@ -162,7 +162,7 @@ export default function MonthlyTrendChart({ data, availableMonths, categories }:
   }, [data, availableMonths, selectedCategory, searchQuery, selectedInvestor]);
 
   // Get investors for search dropdown - fix the filtering logic
-  const searchResults = searchQuery.trim() ? data.filter(inv => {
+  const searchResults = searchQuery && searchQuery.trim().length > 0 ? data.filter(inv => {
     const query = searchQuery.toLowerCase().trim();
     return inv.name.toLowerCase().includes(query) || 
            (inv.description && inv.description.toLowerCase().includes(query));
@@ -198,7 +198,7 @@ export default function MonthlyTrendChart({ data, availableMonths, categories }:
             />
           </div>
           
-          {searchResults.length > 0 && searchQuery.trim() && (
+          {searchResults.length > 0 && searchQuery && searchQuery.trim().length > 0 && (
             <Select value={selectedInvestor} onValueChange={setSelectedInvestor}>
               <SelectTrigger className="w-[200px]">
                 <SelectValue placeholder="Select specific investor" />

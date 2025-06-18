@@ -1,3 +1,4 @@
+
 import { MonthlyInvestorData, MonthlyDataFile } from '@/types';
 
 // Parse monthly Excel file and extract data
@@ -259,12 +260,7 @@ export const exportToExcel = async (): Promise<void> => {
   )).sort();
   
   // Convert date keys to display format for headers
-  const displayHeaders = allMonths.map(dateKey => {
-    const date = new Date(dateKey);
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return `${monthNames[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
-  });
+  const displayHeaders = getMonthDisplayLabels(allMonths);
   
   // Create header row
   const headers = ['Name', 'Category', 'Description', 'Fund Group', ...displayHeaders];
@@ -281,32 +277,75 @@ export const exportToExcel = async (): Promise<void> => {
   // Create worksheet
   const worksheet = utils.aoa_to_sheet([headers, ...rows]);
   
-  // Add color formatting to month columns
+  // Add color formatting to month columns with proper Excel styling
   const range = utils.decode_range(worksheet['!ref'] || 'A1');
+  
+  // Initialize worksheet styles if not present
+  if (!worksheet['!cols']) worksheet['!cols'] = [];
+  if (!worksheet['!rows']) worksheet['!rows'] = [];
+  
   for (let row = 1; row <= range.e.r; row++) {
-    for (let col = 4; col < headers.length; col++) { // Start from month columns
+    for (let col = 4; col < headers.length; col++) { // Start from month columns (after Name, Category, Description, Fund Group)
       const monthIndex = col - 4;
-      if (monthIndex > 0) {
+      if (monthIndex > 0) { // Skip first month (no comparison possible)
         const cellAddress = utils.encode_cell({ r: row, c: col });
         const prevCellAddress = utils.encode_cell({ r: row, c: col - 1 });
         
-        const currentValue = worksheet[cellAddress]?.v || 0;
-        const prevValue = worksheet[prevCellAddress]?.v || 0;
+        if (!worksheet[cellAddress]) worksheet[cellAddress] = { t: 'n', v: 0 };
+        if (!worksheet[prevCellAddress]) worksheet[prevCellAddress] = { t: 'n', v: 0 };
+        
+        const currentValue = Number(worksheet[cellAddress].v) || 0;
+        const prevValue = Number(worksheet[prevCellAddress].v) || 0;
         
         let fill;
         if (currentValue > prevValue) {
-          fill = { fgColor: { rgb: "DCFCE7" } }; // Light green
+          fill = { fgColor: { rgb: "90EE90" } }; // Light green
         } else if (currentValue < prevValue) {
-          fill = { fgColor: { rgb: "FEE2E2" } }; // Light red
+          fill = { fgColor: { rgb: "FFB6C1" } }; // Light red/pink
         } else {
-          fill = { fgColor: { rgb: "E0F2FE" } }; // Light blue
+          fill = { fgColor: { rgb: "ADD8E6" } }; // Light blue
         }
         
-        if (!worksheet[cellAddress]) worksheet[cellAddress] = {};
-        worksheet[cellAddress].s = { fill };
+        // Apply the style to the cell
+        if (!worksheet[cellAddress].s) worksheet[cellAddress].s = {};
+        worksheet[cellAddress].s.fill = fill;
+        
+        // Add border for better visibility
+        worksheet[cellAddress].s.border = {
+          top: { style: "thin", color: { rgb: "000000" } },
+          bottom: { style: "thin", color: { rgb: "000000" } },
+          left: { style: "thin", color: { rgb: "000000" } },
+          right: { style: "thin", color: { rgb: "000000" } }
+        };
       }
     }
   }
+  
+  // Style the header row
+  for (let col = 0; col < headers.length; col++) {
+    const cellAddress = utils.encode_cell({ r: 0, c: col });
+    if (!worksheet[cellAddress]) worksheet[cellAddress] = { t: 's', v: headers[col] };
+    if (!worksheet[cellAddress].s) worksheet[cellAddress].s = {};
+    
+    worksheet[cellAddress].s.fill = { fgColor: { rgb: "D3D3D3" } }; // Light gray
+    worksheet[cellAddress].s.font = { bold: true };
+    worksheet[cellAddress].s.border = {
+      top: { style: "thin", color: { rgb: "000000" } },
+      bottom: { style: "thin", color: { rgb: "000000" } },
+      left: { style: "thin", color: { rgb: "000000" } },
+      right: { style: "thin", color: { rgb: "000000" } }
+    };
+  }
+  
+  // Set column widths
+  const colWidths = [
+    { wch: 30 }, // Name
+    { wch: 15 }, // Category
+    { wch: 25 }, // Description
+    { wch: 15 }, // Fund Group
+    ...allMonths.map(() => ({ wch: 15 })) // Month columns
+  ];
+  worksheet['!cols'] = colWidths;
   
   // Create workbook and download
   const workbook = utils.book_new();

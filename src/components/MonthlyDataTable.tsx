@@ -88,13 +88,13 @@ export default function MonthlyDataTable({ data, availableMonths, categories }: 
   // Get display labels for the available months
   const displayLabels = getMonthDisplayLabels(availableMonths);
 
-  // Filter data
+  // Filter data - fix the filtering logic
   const filteredData = data.filter(investor => {
-    // Search filter - fix blank issue
-    if (searchQuery && searchQuery.trim()) {
+    // Search filter - properly handle empty and whitespace
+    if (searchQuery && searchQuery.trim().length > 0) {
       const query = searchQuery.toLowerCase().trim();
       const nameMatch = investor.name.toLowerCase().includes(query);
-      const descriptionMatch = investor.description?.toLowerCase().includes(query) || false;
+      const descriptionMatch = investor.description && investor.description.toLowerCase().includes(query);
       if (!nameMatch && !descriptionMatch) {
         return false;
       }
@@ -109,11 +109,11 @@ export default function MonthlyDataTable({ data, availableMonths, categories }: 
     const latestMonth = availableMonths[availableMonths.length - 1];
     const latestShares = investor.monthlyShares[latestMonth] || 0;
     
-    if (minShares && latestShares < parseInt(minShares)) {
+    if (minShares && minShares.trim() !== "" && latestShares < parseInt(minShares)) {
       return false;
     }
     
-    if (maxShares && latestShares > parseInt(maxShares)) {
+    if (maxShares && maxShares.trim() !== "" && latestShares > parseInt(maxShares)) {
       return false;
     }
     
