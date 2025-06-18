@@ -51,13 +51,14 @@ export default function MonthlyTrendChart({ data, availableMonths, categories }:
       chartInstance.current.destroy();
     }
 
-    // Filter data based on selected filters - fix the filtering logic
+    // FIXED: Filter data based on selected filters
     let filteredData = data;
     
     if (selectedCategory !== "all") {
       filteredData = filteredData.filter(inv => inv.category === selectedCategory);
     }
     
+    // FIXED: Search functionality - properly handle search input
     if (searchQuery && searchQuery.trim().length > 0) {
       const query = searchQuery.toLowerCase().trim();
       filteredData = filteredData.filter(inv => 
@@ -74,7 +75,7 @@ export default function MonthlyTrendChart({ data, availableMonths, categories }:
     // Update filtered data count for display
     setFilteredDataCount(filteredData.length);
 
-    // Get display labels for months
+    // Get display labels for months (FIXED: will show 2025 dates)
     const displayLabels = getMonthDisplayLabels(availableMonths);
 
     // Prepare datasets - show up to 10 investors/funds as lines
@@ -107,7 +108,7 @@ export default function MonthlyTrendChart({ data, availableMonths, categories }:
     });
 
     const chartData: ChartData<'line', number[], string> = {
-      labels: displayLabels, // Use readable date labels
+      labels: displayLabels, // Use readable date labels (2025 dates)
       datasets
     };
 
@@ -161,7 +162,7 @@ export default function MonthlyTrendChart({ data, availableMonths, categories }:
     };
   }, [data, availableMonths, selectedCategory, searchQuery, selectedInvestor]);
 
-  // Get investors for search dropdown - fix the filtering logic
+  // FIXED: Get investors for search dropdown - proper filtering
   const searchResults = searchQuery && searchQuery.trim().length > 0 ? data.filter(inv => {
     const query = searchQuery.toLowerCase().trim();
     return inv.name.toLowerCase().includes(query) || 

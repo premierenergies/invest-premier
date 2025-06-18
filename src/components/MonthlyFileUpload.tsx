@@ -1,6 +1,6 @@
 
 import { useState, useRef } from "react";
-import { parseMonthlyExcelFile, saveMonthlyData, exportToExcel } from "@/utils/csvUtils";
+import { parseMonthlyExcelFile, saveMonthlyData, exportToExcel, getUploadedFiles } from "@/utils/csvUtils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
@@ -15,6 +15,9 @@ export default function MonthlyFileUpload({ onDataLoaded }: MonthlyFileUploadPro
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+
+  // FIXED: Get actual uploaded file count from localStorage
+  const actualUploadedFiles = getUploadedFiles();
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -118,9 +121,10 @@ export default function MonthlyFileUpload({ onDataLoaded }: MonthlyFileUploadPro
         Export Excel
       </Button>
       
-      {uploadedFiles.length > 0 && (
+      {/* FIXED: Show actual uploaded file count */}
+      {actualUploadedFiles.length > 0 && (
         <span className="text-sm text-green-600">
-          ✓ {uploadedFiles.length} file(s) uploaded
+          ✓ {actualUploadedFiles.length} file(s) uploaded
         </span>
       )}
     </div>

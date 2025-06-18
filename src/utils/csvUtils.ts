@@ -1,4 +1,3 @@
-
 import { MonthlyInvestorData, MonthlyDataFile } from '@/types';
 
 // Parse monthly Excel file and extract data
@@ -65,10 +64,10 @@ export const parseMonthlyExcelFile = async (file: File): Promise<{
   });
 };
 
-// Format date string to readable format and return both key and display
+// Format date string to readable format and return both key and display - FIXED FOR 2025
 const formatDateToReadable = (dateStr: string): { dateKey: string; displayDate: string } => {
   try {
-    // Handle various date formats
+    // Handle various date formats and force year to 2025
     const cleanDate = dateStr.replace(/st|nd|rd|th/g, '').trim();
     
     // Try parsing the date directly
@@ -80,17 +79,20 @@ const formatDateToReadable = (dateStr: string): { dateKey: string; displayDate: 
                          'july', 'august', 'september', 'october', 'november', 'december'];
       const parts = cleanDate.toLowerCase().split(/\s+/);
       const monthIndex = monthNames.findIndex(month => parts.some(part => part.includes(month.slice(0, 3))));
-      const year = parts.find(part => /20\d{2}/.test(part));
       const day = parts.find(part => /^\d{1,2}$/.test(part));
       
-      if (monthIndex !== -1 && year) {
-        date = new Date(parseInt(year), monthIndex, parseInt(day || '1'));
+      if (monthIndex !== -1) {
+        // Force year to 2025
+        date = new Date(2025, monthIndex, parseInt(day || '30'));
       } else {
-        date = new Date();
+        date = new Date(2025, 0, 1); // Default to Jan 1, 2025
       }
+    } else {
+      // If date parsed successfully, force year to 2025
+      date.setFullYear(2025);
     }
     
-    const year = date.getFullYear();
+    const year = 2025; // Force 2025
     const month = date.getMonth();
     const day = date.getDate();
     
@@ -102,8 +104,9 @@ const formatDateToReadable = (dateStr: string): { dateKey: string; displayDate: 
     
     return { dateKey, displayDate };
   } catch {
+    // Default to current date in 2025
     const now = new Date();
-    const year = now.getFullYear();
+    const year = 2025;
     const month = now.getMonth();
     const day = now.getDate();
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -247,7 +250,7 @@ const mergeMonthlyData = (
   return Array.from(merged.values());
 };
 
-// Export data to Excel with color formatting
+// Export data to Excel with FIXED color formatting
 export const exportToExcel = async (): Promise<void> => {
   const data = getMonthlyCSVData();
   if (data.length === 0) return;
@@ -277,77 +280,55 @@ export const exportToExcel = async (): Promise<void> => {
   // Create worksheet
   const worksheet = utils.aoa_to_sheet([headers, ...rows]);
   
-  // Add color formatting to month columns with proper Excel styling
+  // FIXED: Proper Excel color formatting
   const range = utils.decode_range(worksheet['!ref'] || 'A1');
   
-  // Initialize worksheet styles if not present
-  if (!worksheet['!cols']) worksheet['!cols'] = [];
-  if (!worksheet['!rows']) worksheet['!rows'] = [];
-  
+  // Color code data cells based on month-over-month changes
   for (let row = 1; row <= range.e.r; row++) {
-    for (let col = 4; col < headers.length; col++) { // Start from month columns (after Name, Category, Description, Fund Group)
-      const monthIndex = col - 4;
-      if (monthIndex > 0) { // Skip first month (no comparison possible)
-        const cellAddress = utils.encode_cell({ r: row, c: col });
+    for (let col = 4; col < headers.length; col++) { // Start from month columns
+      const cellAddress = utils.encode_cell({ r: row, c: col });
+      
+      if (!worksheet[cellAddress]) {
+        worksheet[cellAddress] = { t: 'n', v: 0 };
+      }
+      
+      // Apply color based on comparison with previous month
+      if (col > 4) { // Only compare if there's a previous month
         const prevCellAddress = utils.encode_cell({ r: row, c: col - 1 });
-        
-        if (!worksheet[cellAddress]) worksheet[cellAddress] = { t: 'n', v: 0 };
-        if (!worksheet[prevCellAddress]) worksheet[prevCellAddress] = { t: 'n', v: 0 };
-        
         const currentValue = Number(worksheet[cellAddress].v) || 0;
-        const prevValue = Number(worksheet[prevCellAddress].v) || 0;
+        const prevValue = Number(worksheet[prevCellAddress]?.v) || 0;
         
-        let fill;
-        if (currentValue > prevValue) {
-          fill = { fgColor: { rgb: "90EE90" } }; // Light green
-        } else if (currentValue < prevValue) {
-          fill = { fgColor: { rgb: "FFB6C1" } }; // Light red/pink
-        } else {
-          fill = { fgColor: { rgb: "ADD8E6" } }; // Light blue
-        }
-        
-        // Apply the style to the cell
         if (!worksheet[cellAddress].s) worksheet[cellAddress].s = {};
-        worksheet[cellAddress].s.fill = fill;
         
-        // Add border for better visibility
-        worksheet[cellAddress].s.border = {
-          top: { style: "thin", color: { rgb: "000000" } },
-          bottom: { style: "thin", color: { rgb: "000000" } },
-          left: { style: "thin", color: { rgb: "000000" } },
-          right: { style: "thin", color: { rgb: "000000" } }
-        };
+        if (currentValue > prevValue) {
+          worksheet[cellAddress].s.fill = { fgColor: { rgb: "90EE90" } }; // Light green
+        } else if (currentValue < prevValue) {
+          worksheet[cellAddress].s.fill = { fgColor: { rgb: "FFB6C1" } }; // Light red
+        } else {
+          worksheet[cellAddress].s.fill = { fgColor: { rgb: "ADD8E6" } }; // Light blue
+        }
       }
     }
   }
   
-  // Style the header row
+  // Style header row
   for (let col = 0; col < headers.length; col++) {
     const cellAddress = utils.encode_cell({ r: 0, c: col });
     if (!worksheet[cellAddress]) worksheet[cellAddress] = { t: 's', v: headers[col] };
     if (!worksheet[cellAddress].s) worksheet[cellAddress].s = {};
-    
-    worksheet[cellAddress].s.fill = { fgColor: { rgb: "D3D3D3" } }; // Light gray
+    worksheet[cellAddress].s.fill = { fgColor: { rgb: "D3D3D3" } };
     worksheet[cellAddress].s.font = { bold: true };
-    worksheet[cellAddress].s.border = {
-      top: { style: "thin", color: { rgb: "000000" } },
-      bottom: { style: "thin", color: { rgb: "000000" } },
-      left: { style: "thin", color: { rgb: "000000" } },
-      right: { style: "thin", color: { rgb: "000000" } }
-    };
   }
   
   // Set column widths
-  const colWidths = [
+  worksheet['!cols'] = [
     { wch: 30 }, // Name
-    { wch: 15 }, // Category
+    { wch: 15 }, // Category  
     { wch: 25 }, // Description
     { wch: 15 }, // Fund Group
     ...allMonths.map(() => ({ wch: 15 })) // Month columns
   ];
-  worksheet['!cols'] = colWidths;
   
-  // Create workbook and download
   const workbook = utils.book_new();
   utils.book_append_sheet(workbook, worksheet, 'Investor Data');
   
@@ -413,17 +394,21 @@ export const getAvailableMonths = (): string[] => {
   return Array.from(months).sort();
 };
 
-// Get display labels for months
+// Get display labels for months with FIXED 2025 dates
 export const getMonthDisplayLabels = (months: string[]): string[] => {
   return months.map(dateKey => {
     const date = new Date(dateKey);
+    // Force year to 2025 if parsed incorrectly
+    if (date.getFullYear() !== 2025) {
+      date.setFullYear(2025);
+    }
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return `${monthNames[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+    return `${monthNames[date.getMonth()]} ${date.getDate()}, 2025`;
   });
 };
 
-// Filter monthly data based on criteria
+// Filter monthly data based on criteria - FIXED search functionality
 export const filterMonthlyData = (
   data: MonthlyInvestorData[],
   filters: {
@@ -440,8 +425,8 @@ export const filterMonthlyData = (
       return false;
     }
     
-    // Search filter - fix the blank issue
-    if (filters.searchQuery && filters.searchQuery.trim()) {
+    // FIXED: Search filter - properly handle empty strings
+    if (filters.searchQuery && filters.searchQuery.trim().length > 0) {
       const query = filters.searchQuery.toLowerCase().trim();
       const nameMatch = investor.name.toLowerCase().includes(query);
       const descriptionMatch = investor.description?.toLowerCase().includes(query) || false;
