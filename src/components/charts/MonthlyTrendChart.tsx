@@ -42,6 +42,7 @@ export default function MonthlyTrendChart({ data, availableMonths, categories }:
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [selectedInvestor, setSelectedInvestor] = useState<string>("");
+  const [filteredDataCount, setFilteredDataCount] = useState<number>(0);
 
   useEffect(() => {
     if (!chartRef.current || !data.length || !availableMonths.length) return;
@@ -69,6 +70,9 @@ export default function MonthlyTrendChart({ data, availableMonths, categories }:
     if (selectedInvestor) {
       filteredData = filteredData.filter(inv => inv.name === selectedInvestor);
     }
+
+    // Update filtered data count for display
+    setFilteredDataCount(filteredData.length);
 
     // Get display labels for months
     const displayLabels = getMonthDisplayLabels(availableMonths);
@@ -215,7 +219,7 @@ export default function MonthlyTrendChart({ data, availableMonths, categories }:
         <div className="h-[400px]">
           <canvas ref={chartRef} />
         </div>
-        {filteredData.length > 10 && (
+        {filteredDataCount > 10 && (
           <p className="text-sm text-muted-foreground mt-2">
             Showing top 10 results. Use filters to narrow down the selection.
           </p>
