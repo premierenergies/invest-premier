@@ -252,7 +252,7 @@ const mergeMonthlyData = (
 
 // Export data to Excel with FIXED color formatting
 export const exportToExcel = async (): Promise<void> => {
-  const data = getMonthlyCSVData();
+  const data = await getMonthlyCSVData();
   if (data.length === 0) return;
   
   const { utils, write } = await import('xlsx');
@@ -344,8 +344,8 @@ export const exportToExcel = async (): Promise<void> => {
 };
 
 // Export CSV data as downloadable file
-export const exportToCSV = (): void => {
-  const data = getMonthlyCSVData();
+export const exportToCSV = async (): Promise<void> => {
+  const data = await getMonthlyCSVData();
   if (data.length === 0) return;
   
   // Get all unique months
@@ -381,8 +381,8 @@ export const exportToCSV = (): void => {
 };
 
 // Get available months for filtering with proper display format
-export const getAvailableMonths = (): string[] => {
-  const data = getMonthlyCSVData();
+export const getAvailableMonths = async (): Promise<string[]> => {
+  const data = await getMonthlyCSVData();
   const months = new Set<string>();
   
   data.forEach(investor => {
@@ -394,17 +394,13 @@ export const getAvailableMonths = (): string[] => {
   return Array.from(months).sort();
 };
 
-// Get display labels for months with FIXED 2025 dates
+// Get display labels for months
 export const getMonthDisplayLabels = (months: string[]): string[] => {
   return months.map(dateKey => {
     const date = new Date(dateKey);
-    // Force year to 2025 if parsed incorrectly
-    if (date.getFullYear() !== 2025) {
-      date.setFullYear(2025);
-    }
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return `${monthNames[date.getMonth()]} ${date.getDate()}, 2025`;
+    return `${monthNames[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
   });
 };
 
