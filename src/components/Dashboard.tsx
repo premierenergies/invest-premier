@@ -64,7 +64,7 @@ export default function Dashboard() {
       console.log("Dashboard mount - checking for monthly data");
       try {
         const savedMonthlyData = await getMonthlyCSVData();
-        const months = getAvailableMonths();
+        const months = await getAvailableMonths();
         console.log("Found monthly data:", savedMonthlyData.length, "records,", months.length, "months");
         
         if (savedMonthlyData.length > 0) {
@@ -133,7 +133,7 @@ export default function Dashboard() {
     console.log("handleMonthlyDataLoaded called - refreshing monthly data");
     try {
       const savedMonthlyData = await getMonthlyCSVData();
-      const months = getAvailableMonths();
+      const months = await getAvailableMonths();
       console.log("Refreshed monthly data:", savedMonthlyData.length, "records,", months.length, "months");
       
       setMonthlyData(savedMonthlyData);
