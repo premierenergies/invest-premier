@@ -80,8 +80,8 @@ function FundBreakdownDialog({ investor }: { investor: MonthlyInvestorData }) {
 export default function MonthlyDataTable({ data, availableMonths, categories }: MonthlyDataTableProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
-  const [minShares, setMinShares] = useState<string>("");
-  const [maxShares, setMaxShares] = useState<string>("");
+  const [minSharesFilter, setMinSharesFilter] = useState<string>("");
+  const [maxSharesFilter, setMaxSharesFilter] = useState<string>("");
   const [sortBy, setSortBy] = useState<string>("name");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
@@ -109,11 +109,11 @@ export default function MonthlyDataTable({ data, availableMonths, categories }: 
     const latestMonth = availableMonths[availableMonths.length - 1];
     const latestShares = investor.monthlyShares[latestMonth] || 0;
     
-    if (minShares && minShares.trim() !== "" && latestShares < parseInt(minShares)) {
+    if (minSharesFilter && minSharesFilter.trim() !== "" && latestShares < parseInt(minSharesFilter)) {
       return false;
     }
     
-    if (maxShares && maxShares.trim() !== "" && latestShares > parseInt(maxShares)) {
+    if (maxSharesFilter && maxSharesFilter.trim() !== "" && latestShares > parseInt(maxSharesFilter)) {
       return false;
     }
     
@@ -161,8 +161,8 @@ export default function MonthlyDataTable({ data, availableMonths, categories }: 
     availableMonths.map(month => investor.monthlyShares[month] || 0)
   ).filter(value => value > 0);
   
-  const maxShares = Math.max(...allShareValues);
-  const minShares = Math.min(...allShareValues);
+  const maxSharesValue = Math.max(...allShareValues);
+  const minSharesValue = Math.min(...allShareValues);
 
   // Get cell color with gradient heatmap based on share quantity
   const getCellColorWithGradient = (investor: MonthlyInvestorData, monthIndex: number): string => {
@@ -181,7 +181,8 @@ export default function MonthlyDataTable({ data, availableMonths, categories }: 
     }
     
     // Calculate intensity based on share quantity (0-1 scale)
-    const intensity = (currentShares - minShares) / (maxShares - minShares);
+    const intensity = maxSharesValue > minSharesValue ? 
+      (currentShares - minSharesValue) / (maxSharesValue - minSharesValue) : 0;
     const opacity = Math.max(0.1, Math.min(0.8, intensity));
     
     // Apply gradient colors based on change type
@@ -231,16 +232,16 @@ export default function MonthlyDataTable({ data, availableMonths, categories }: 
 
         <Input
           placeholder="Min shares"
-          value={minShares}
-          onChange={(e) => setMinShares(e.target.value)}
+          value={minSharesFilter}
+          onChange={(e) => setMinSharesFilter(e.target.value)}
           type="number"
           className="w-32"
         />
 
         <Input
           placeholder="Max shares"
-          value={maxShares}
-          onChange={(e) => setMaxShares(e.target.value)}
+          value={maxSharesFilter}
+          onChange={(e) => setMaxSharesFilter(e.target.value)}
           type="number"
           className="w-32"
         />
