@@ -1,4 +1,3 @@
-
 import { MonthlyInvestorData, MonthlyDataFile } from '@/types';
 
 // Parse monthly Excel file and extract data
@@ -41,7 +40,7 @@ export const parseMonthlyExcelFile = async (file: File): Promise<{
           const name = row["NAME"] || `Unknown-${index}`;
           const shares = parseNumber(row[sharesHeader || "SHARES AS ON"]);
           const category = row["CATEGORY"] || "Unknown";
-          const description = row["DESCRIPTION"] || "";
+          const description = row["DESCRIPTION"] || ""; // Optional field
           
           return {
             name,
