@@ -88,9 +88,9 @@ export default function MonthlyDataTable({ data, availableMonths, categories }: 
   // Get display labels for the available months
   const displayLabels = getMonthDisplayLabels(availableMonths);
 
-  // Filter data - fix the filtering logic
+  // Filter data
   const filteredData = data.filter(investor => {
-    // Search filter - properly handle empty and whitespace
+    // Search filter
     if (searchQuery && searchQuery.trim().length > 0) {
       const query = searchQuery.toLowerCase().trim();
       const nameMatch = investor.name.toLowerCase().includes(query);
@@ -156,19 +156,42 @@ export default function MonthlyDataTable({ data, availableMonths, categories }: 
       <ArrowDown className="w-4 h-4 ml-1" />;
   };
 
-  // Get cell color based on comparison with previous month
-  const getCellColor = (investor: MonthlyInvestorData, monthIndex: number): string => {
-    if (monthIndex === 0) return ""; // No color for first month
-    
+  // Get all share values to calculate min/max for gradient
+  const allShareValues = data.flatMap(investor => 
+    availableMonths.map(month => investor.monthlyShares[month] || 0)
+  ).filter(value => value > 0);
+  
+  const maxShares = Math.max(...allShareValues);
+  const minShares = Math.min(...allShareValues);
+
+  // Get cell color with gradient heatmap based on share quantity
+  const getCellColorWithGradient = (investor: MonthlyInvestorData, monthIndex: number): string => {
     const currentMonth = availableMonths[monthIndex];
-    const previousMonth = availableMonths[monthIndex - 1];
-    
     const currentShares = investor.monthlyShares[currentMonth] || 0;
-    const previousShares = investor.monthlyShares[previousMonth] || 0;
     
-    if (currentShares > previousShares) return "bg-green-100 text-green-800";
-    if (currentShares < previousShares) return "bg-red-100 text-red-800";
-    return "bg-sky-100 text-sky-800";
+    if (currentShares === 0) return "";
+    
+    // Calculate change from previous month
+    let changeType = "same";
+    if (monthIndex > 0) {
+      const previousMonth = availableMonths[monthIndex - 1];
+      const previousShares = investor.monthlyShares[previousMonth] || 0;
+      if (currentShares > previousShares) changeType = "increase";
+      else if (currentShares < previousShares) changeType = "decrease";
+    }
+    
+    // Calculate intensity based on share quantity (0-1 scale)
+    const intensity = (currentShares - minShares) / (maxShares - minShares);
+    const opacity = Math.max(0.1, Math.min(0.8, intensity));
+    
+    // Apply gradient colors based on change type
+    if (changeType === "increase") {
+      return `rgba(34, 197, 94, ${opacity})`; // Green with variable opacity
+    } else if (changeType === "decrease") {
+      return `rgba(239, 68, 68, ${opacity})`; // Red with variable opacity
+    } else {
+      return `rgba(59, 130, 246, ${opacity})`; // Blue with variable opacity
+    }
   };
 
   return (
@@ -176,9 +199,9 @@ export default function MonthlyDataTable({ data, availableMonths, categories }: 
       {/* Legend */}
       <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
         <span className="text-sm font-medium">Legend:</span>
-        <Badge className="bg-green-100 text-green-800">Higher than previous month</Badge>
-        <Badge className="bg-red-100 text-red-800">Lower than previous month</Badge>
-        <Badge className="bg-sky-100 text-sky-800">Same as previous month</Badge>
+        <Badge className="bg-green-100 text-green-800">Green: Increased shares (darker = more shares)</Badge>
+        <Badge className="bg-red-100 text-red-800">Red: Decreased shares (darker = more shares)</Badge>
+        <Badge className="bg-blue-100 text-blue-800">Blue: Same as previous (darker = more shares)</Badge>
       </div>
 
       {/* Filters */}
@@ -289,7 +312,11 @@ export default function MonthlyDataTable({ data, availableMonths, categories }: 
                     {availableMonths.map((month, index) => (
                       <TableCell 
                         key={month}
-                        className={`text-right ${getCellColor(investor, index)}`}
+                        className="text-right"
+                        style={{ 
+                          backgroundColor: getCellColorWithGradient(investor, index),
+                          color: investor.monthlyShares[month] > 0 ? 'rgba(0, 0, 0, 0.8)' : 'inherit'
+                        }}
                       >
                         {(investor.monthlyShares[month] || 0).toLocaleString()}
                       </TableCell>
