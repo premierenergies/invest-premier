@@ -1,4 +1,5 @@
 import { MonthlyInvestorData, MonthlyDataFile } from '@/types';
+import { hybridStorage, largeDataStorage } from './storageUtils';
 
 // Parse monthly Excel file and extract data
 export const parseMonthlyExcelFile = async (file: File): Promise<{
@@ -178,10 +179,10 @@ export const groupInvestorsByFund = (investors: MonthlyInvestorData[]): MonthlyI
   return result;
 };
 
-// Save monthly data to localStorage and merge with existing CSV data
-export const saveMonthlyData = (newDate: string, newData: MonthlyInvestorData[], fileName: string): void => {
-  const existingData = getMonthlyCSVData();
-  const existingFiles = getUploadedFiles();
+// Save monthly data using hybrid storage for large datasets
+export const saveMonthlyData = async (newDate: string, newData: MonthlyInvestorData[], fileName: string): Promise<void> => {
+  const existingData = await getMonthlyCSVData();
+  const existingFiles = await getUploadedFiles();
   
   // Merge new data with existing
   const mergedData = mergeMonthlyData(existingData, newData, newDate);
@@ -189,8 +190,8 @@ export const saveMonthlyData = (newDate: string, newData: MonthlyInvestorData[],
   // Group by fund groups
   const groupedData = groupInvestorsByFund(mergedData);
   
-  // Save merged data
-  localStorage.setItem("monthlyCSVData", JSON.stringify(groupedData));
+  // Save merged data using hybrid storage
+  await hybridStorage.setItem("monthlyCSVData", groupedData);
   
   // Track uploaded files
   const newFile: MonthlyDataFile = {
@@ -201,21 +202,21 @@ export const saveMonthlyData = (newDate: string, newData: MonthlyInvestorData[],
   };
   
   const updatedFiles = [...existingFiles.filter(f => f.date !== newDate), newFile];
-  localStorage.setItem("uploadedFiles", JSON.stringify(updatedFiles));
+  await largeDataStorage.setItem('uploadedFiles', 'uploadedFiles', updatedFiles);
   
   console.log(`Saved monthly data for ${newDate}. Total investors:`, groupedData.length);
 };
 
-// Get monthly CSV data from localStorage
-export const getMonthlyCSVData = (): MonthlyInvestorData[] => {
-  const data = localStorage.getItem("monthlyCSVData");
-  return data ? JSON.parse(data) : [];
+// Get monthly CSV data using hybrid storage
+export const getMonthlyCSVData = async (): Promise<MonthlyInvestorData[]> => {
+  const data = await hybridStorage.getItem("monthlyCSVData");
+  return data || [];
 };
 
-// Get list of uploaded files
-export const getUploadedFiles = (): MonthlyDataFile[] => {
-  const data = localStorage.getItem("uploadedFiles");
-  return data ? JSON.parse(data) : [];
+// Get list of uploaded files using IndexedDB
+export const getUploadedFiles = async (): Promise<MonthlyDataFile[]> => {
+  const data = await largeDataStorage.getItem('uploadedFiles', 'uploadedFiles');
+  return data || [];
 };
 
 // Merge new monthly data with existing data

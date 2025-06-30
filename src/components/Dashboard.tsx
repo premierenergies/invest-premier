@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { filterInvestors, generateAnalyticsSummary, getInvestorsData, getUniqueCategories, getUniqueFundGroups, analyzeInvestorBehavior, filterInvestorsByConditions } from "@/utils/dataUtils";
 import { getMonthlyCSVData, getAvailableMonths, filterMonthlyData } from "@/utils/csvUtils";
@@ -59,22 +58,30 @@ export default function Dashboard() {
     }
   }, []);
 
-  // Check for monthly data on mount
+  // Check for monthly data on mount with async support
   useEffect(() => {
-    console.log("Dashboard mount - checking for monthly data");
-    const savedMonthlyData = getMonthlyCSVData();
-    const months = getAvailableMonths();
-    console.log("Found monthly data:", savedMonthlyData.length, "records,", months.length, "months");
+    const loadMonthlyData = async () => {
+      console.log("Dashboard mount - checking for monthly data");
+      try {
+        const savedMonthlyData = await getMonthlyCSVData();
+        const months = getAvailableMonths();
+        console.log("Found monthly data:", savedMonthlyData.length, "records,", months.length, "months");
+        
+        if (savedMonthlyData.length > 0) {
+          setMonthlyData(savedMonthlyData);
+          setAvailableMonths(months);
+          setMonthlyDataLoaded(true);
+          
+          // Extract categories from monthly data
+          const uniqueCategories = [...new Set(savedMonthlyData.map(inv => inv.category))];
+          setMonthlyCategories(uniqueCategories);
+        }
+      } catch (error) {
+        console.error('Error loading monthly data:', error);
+      }
+    };
     
-    if (savedMonthlyData.length > 0) {
-      setMonthlyData(savedMonthlyData);
-      setAvailableMonths(months);
-      setMonthlyDataLoaded(true);
-      
-      // Extract categories from monthly data
-      const uniqueCategories = [...new Set(savedMonthlyData.map(inv => inv.category))];
-      setMonthlyCategories(uniqueCategories);
-    }
+    loadMonthlyData();
   }, []);
 
   // Apply filtering conditions for legacy data
@@ -122,18 +129,22 @@ export default function Dashboard() {
     setDataLoaded(true);
   };
 
-  const handleMonthlyDataLoaded = () => {
+  const handleMonthlyDataLoaded = async () => {
     console.log("handleMonthlyDataLoaded called - refreshing monthly data");
-    const savedMonthlyData = getMonthlyCSVData();
-    const months = getAvailableMonths();
-    console.log("Refreshed monthly data:", savedMonthlyData.length, "records,", months.length, "months");
-    
-    setMonthlyData(savedMonthlyData);
-    setAvailableMonths(months);
-    setMonthlyDataLoaded(true);
-    
-    const uniqueCategories = [...new Set(savedMonthlyData.map(inv => inv.category))];
-    setMonthlyCategories(uniqueCategories);
+    try {
+      const savedMonthlyData = await getMonthlyCSVData();
+      const months = getAvailableMonths();
+      console.log("Refreshed monthly data:", savedMonthlyData.length, "records,", months.length, "months");
+      
+      setMonthlyData(savedMonthlyData);
+      setAvailableMonths(months);
+      setMonthlyDataLoaded(true);
+      
+      const uniqueCategories = [...new Set(savedMonthlyData.map(inv => inv.category))];
+      setMonthlyCategories(uniqueCategories);
+    } catch (error) {
+      console.error('Error refreshing monthly data:', error);
+    }
   };
 
   // Generate analytics summary for legacy data

@@ -1,5 +1,5 @@
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { parseMonthlyExcelFile, saveMonthlyData, exportToExcel, getUploadedFiles } from "@/utils/csvUtils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,11 +13,22 @@ interface MonthlyFileUploadProps {
 export default function MonthlyFileUpload({ onDataLoaded }: MonthlyFileUploadProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
+  const [actualUploadedFiles, setActualUploadedFiles] = useState<any[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  // FIXED: Get actual uploaded file count from localStorage
-  const actualUploadedFiles = getUploadedFiles();
+  // Load uploaded files on mount
+  useEffect(() => {
+    const loadUploadedFiles = async () => {
+      try {
+        const files = await getUploadedFiles();
+        setActualUploadedFiles(files);
+      } catch (error) {
+        console.error('Error loading uploaded files:', error);
+      }
+    };
+    loadUploadedFiles();
+  }, []);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -44,7 +55,7 @@ export default function MonthlyFileUpload({ onDataLoaded }: MonthlyFileUploadPro
         console.log(`Processing file: ${file.name}`);
         const { date, data } = await parseMonthlyExcelFile(file);
         
-        saveMonthlyData(date, data, file.name);
+        await saveMonthlyData(date, data, file.name);
         totalProcessed += data.length;
         processedFiles.push(file.name);
         
@@ -52,6 +63,10 @@ export default function MonthlyFileUpload({ onDataLoaded }: MonthlyFileUploadPro
       }
 
       setUploadedFiles(prev => [...prev, ...processedFiles]);
+      
+      // Refresh uploaded files list
+      const updatedFiles = await getUploadedFiles();
+      setActualUploadedFiles(updatedFiles);
       
       toast({
         title: "Files uploaded successfully",
@@ -121,7 +136,6 @@ export default function MonthlyFileUpload({ onDataLoaded }: MonthlyFileUploadPro
         Export Excel
       </Button>
       
-      {/* FIXED: Show actual uploaded file count */}
       {actualUploadedFiles.length > 0 && (
         <span className="text-sm text-green-600">
           ✓ {actualUploadedFiles.length} file(s) uploaded
