@@ -336,7 +336,7 @@ export default function MonthlyDataTable({ data, availableMonths, categories }: 
         <Badge className="bg-red-100 text-red-800">Red: Decreased shares</Badge>
         <Badge className="bg-blue-100 text-blue-800">Blue: Same/Initial month</Badge>
         <span className="text-xs text-muted-foreground">
-          Intensity: Light (≤50k) → Dark (>500k)
+          Intensity: Light (≤50k) → Dark ({'>'}500k)
         </span>
       </div>
 
@@ -388,7 +388,7 @@ export default function MonthlyDataTable({ data, availableMonths, categories }: 
       </div>
 
       <div className="text-sm text-muted-foreground">
-        Showing {sortedData.length} investors with >20,000 shares
+        Showing {sortedData.length} investors with {'>'}20,000 shares
       </div>
 
       {/* Table */}
@@ -434,7 +434,7 @@ export default function MonthlyDataTable({ data, availableMonths, categories }: 
               {sortedData.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={3 + availableMonths.length} className="h-24 text-center">
-                    No investors found with >20,000 shares.
+                    No investors found with {'>'}20,000 shares.
                   </TableCell>
                 </TableRow>
               ) : (
