@@ -1,3 +1,4 @@
+
 import { MonthlyInvestorData, MonthlyDataFile } from '@/types';
 
 // Parse monthly Excel file and extract data
@@ -20,11 +21,11 @@ export const parseMonthlyExcelFile = async (file: File): Promise<{
         
         console.log("Raw monthly Excel data:", json.slice(0, 3));
         
-        // Extract date from filename or first column header
+        // Extract date from "SHARES AS ON {date}" header
         const headers = Object.keys(json[0] || {});
-        const sharesHeader = headers.find(h => h.includes('SHARES') || h.includes('AS ON'));
-        const dateMatch = sharesHeader?.match(/(?:SHARES (?:AS )?ON|AS ON)\s+(.+)/i);
-        const extractedDate = dateMatch ? dateMatch[1] : new Date().toISOString().slice(0, 7);
+        const sharesHeader = headers.find(h => h.includes('SHARES AS ON'));
+        const dateMatch = sharesHeader?.match(/SHARES AS ON\s+(.+)/i);
+        const extractedDate = dateMatch ? dateMatch[1] : new Date().toISOString().slice(0, 10);
         
         // Convert to readable format and store both formats
         const { dateKey, displayDate } = formatDateToReadable(extractedDate);
@@ -38,7 +39,7 @@ export const parseMonthlyExcelFile = async (file: File): Promise<{
           };
           
           const name = row["NAME"] || `Unknown-${index}`;
-          const shares = parseNumber(row[sharesHeader || "SHARES"]);
+          const shares = parseNumber(row[sharesHeader || "SHARES AS ON"]);
           const category = row["CATEGORY"] || "Unknown";
           const description = row["DESCRIPTION"] || "";
           
@@ -64,35 +65,34 @@ export const parseMonthlyExcelFile = async (file: File): Promise<{
   });
 };
 
-// Format date string to readable format and return both key and display - FIXED FOR 2025
+// Format date string to readable format and return both key and display - UPDATED for cross-year support
 const formatDateToReadable = (dateStr: string): { dateKey: string; displayDate: string } => {
   try {
-    // Handle various date formats and force year to 2025
+    // Handle various date formats including "May 30th 2024"
     const cleanDate = dateStr.replace(/st|nd|rd|th/g, '').trim();
     
     // Try parsing the date directly
     let date = new Date(cleanDate);
     
-    // If direct parsing fails, try manual parsing
+    // If direct parsing fails, try manual parsing for formats like "May 30 2024"
     if (isNaN(date.getTime())) {
       const monthNames = ['january', 'february', 'march', 'april', 'may', 'june',
                          'july', 'august', 'september', 'october', 'november', 'december'];
       const parts = cleanDate.toLowerCase().split(/\s+/);
       const monthIndex = monthNames.findIndex(month => parts.some(part => part.includes(month.slice(0, 3))));
       const day = parts.find(part => /^\d{1,2}$/.test(part));
+      const year = parts.find(part => /^\d{4}$/.test(part));
       
       if (monthIndex !== -1) {
-        // Force year to 2025
-        date = new Date(2025, monthIndex, parseInt(day || '30'));
+        // Use the extracted year or default to current year
+        const parsedYear = year ? parseInt(year) : new Date().getFullYear();
+        date = new Date(parsedYear, monthIndex, parseInt(day || '1'));
       } else {
-        date = new Date(2025, 0, 1); // Default to Jan 1, 2025
+        date = new Date(); // Default to current date
       }
-    } else {
-      // If date parsed successfully, force year to 2025
-      date.setFullYear(2025);
     }
     
-    const year = 2025; // Force 2025
+    const year = date.getFullYear();
     const month = date.getMonth();
     const day = date.getDate();
     
@@ -104,9 +104,9 @@ const formatDateToReadable = (dateStr: string): { dateKey: string; displayDate: 
     
     return { dateKey, displayDate };
   } catch {
-    // Default to current date in 2025
+    // Default to current date
     const now = new Date();
-    const year = 2025;
+    const year = now.getFullYear();
     const month = now.getMonth();
     const day = now.getDate();
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
