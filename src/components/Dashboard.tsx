@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { filterInvestors, generateAnalyticsSummary, getInvestorsData, getUniqueCategories, getUniqueFundGroups, analyzeInvestorBehavior, filterInvestorsByConditions } from "@/utils/dataUtils";
 import { getMonthlyCSVData, getAvailableMonths, filterMonthlyData } from "@/utils/csvUtils";
+import { getUniqueInvestorCount, toggleGrouping } from "@/utils/investorUtils";
 import { Investor, FilterOptions, InvestorComparison, MonthlyInvestorData } from "@/types";
 import FileUpload from "./FileUpload";
 import MonthlyFileUpload from "./MonthlyFileUpload";
@@ -36,6 +37,7 @@ export default function Dashboard() {
   const [monthlyData, setMonthlyData] = useState<MonthlyInvestorData[]>([]);
   const [availableMonths, setAvailableMonths] = useState<string[]>([]);
   const [monthlyCategories, setMonthlyCategories] = useState<string[]>([]);
+  const [isGrouped, setIsGrouped] = useState(true);
   
   const [filters, setFilters] = useState<FilterOptions>({
     category: null,
@@ -182,10 +184,22 @@ export default function Dashboard() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Investor Analytics Dashboard</h1>
           <p className="text-muted-foreground">
-            Monthly analysis across {availableMonths.length} months ({monthlyData.length} investors/fund groups)
+            Monthly analysis across {availableMonths.length} months ({getUniqueInvestorCount(monthlyData)} unique investors{isGrouped ? '/fund groups' : ''})
           </p>
         </div>
         <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
+            <Switch 
+              id="group-investors" 
+              checked={isGrouped} 
+              onCheckedChange={async (checked) => {
+                setIsGrouped(checked);
+                await toggleGrouping(checked);
+                await handleMonthlyDataLoaded();
+              }} 
+            />
+            <Label htmlFor="group-investors">Group by fund</Label>
+          </div>
           <MonthlyFileUpload onDataLoaded={handleMonthlyDataLoaded} />
         </div>
       </div>

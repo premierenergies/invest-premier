@@ -40,8 +40,8 @@ export const parseMonthlyExcelFile = async (file: File): Promise<{
           
           const name = row["NAME"] || `Unknown-${index}`;
           const shares = parseNumber(row[sharesHeader || "SHARES AS ON"]);
-          const category = row["CATEGORY"] || "Unknown";
-          const description = row["DESCRIPTION"] || ""; // Optional field
+          const category = row["Category"] || row["CATEGORY"] || "Unknown";
+          const description = row["DESCRIPTION"] || row["Description"] || ""; // Optional field
           
           return {
             name,
@@ -180,18 +180,18 @@ export const groupInvestorsByFund = (investors: MonthlyInvestorData[]): MonthlyI
 };
 
 // Save monthly data using hybrid storage for large datasets
-export const saveMonthlyData = async (newDate: string, newData: MonthlyInvestorData[], fileName: string): Promise<void> => {
+export const saveMonthlyData = async (newDate: string, newData: MonthlyInvestorData[], fileName: string, shouldGroup: boolean = true): Promise<void> => {
   const existingData = await getMonthlyCSVData();
   const existingFiles = await getUploadedFiles();
   
   // Merge new data with existing
   const mergedData = mergeMonthlyData(existingData, newData, newDate);
   
-  // Group by fund groups
-  const groupedData = groupInvestorsByFund(mergedData);
+  // Optionally group by fund groups
+  const finalData = shouldGroup ? groupInvestorsByFund(mergedData) : mergedData;
   
   // Save merged data using hybrid storage
-  await hybridStorage.setItem("monthlyCSVData", groupedData);
+  await hybridStorage.setItem("monthlyCSVData", finalData);
   
   // Track uploaded files
   const newFile: MonthlyDataFile = {
@@ -204,7 +204,7 @@ export const saveMonthlyData = async (newDate: string, newData: MonthlyInvestorD
   const updatedFiles = [...existingFiles.filter(f => f.date !== newDate), newFile];
   await largeDataStorage.setItem('uploadedFiles', 'uploadedFiles', updatedFiles);
   
-  console.log(`Saved monthly data for ${newDate}. Total investors:`, groupedData.length);
+  console.log(`Saved monthly data for ${newDate}. Total investors:`, finalData.length);
 };
 
 // Get monthly CSV data using hybrid storage
