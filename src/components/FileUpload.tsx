@@ -1,4 +1,3 @@
-
 import { useState, useRef } from "react";
 import { parseExcelFile, saveInvestorsData } from "@/utils/dataUtils";
 import { Button } from "@/components/ui/button";

@@ -1,146 +1,75 @@
-
-import { useState, useRef, useEffect } from "react";
-import { parseMonthlyExcelFile, saveMonthlyData, exportToExcel, getUploadedFiles } from "@/utils/csvUtils";
+import { useState, useRef } from "react";
+import axios from "axios";
+import { parseMonthlyExcelFile } from "@/utils/csvUtils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
-import { Upload, Download, FileSpreadsheet } from "lucide-react";
+import { Upload } from "lucide-react";
+
+const API = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
 interface MonthlyFileUploadProps {
   onDataLoaded: () => void;
 }
 
 export default function MonthlyFileUpload({ onDataLoaded }: MonthlyFileUploadProps) {
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
-  const [actualUploadedFiles, setActualUploadedFiles] = useState<any[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  // Load uploaded files on mount
-  useEffect(() => {
-    const loadUploadedFiles = async () => {
-      try {
-        const files = await getUploadedFiles();
-        setActualUploadedFiles(files);
-      } catch (error) {
-        console.error('Error loading uploaded files:', error);
-      }
-    };
-    loadUploadedFiles();
-  }, []);
+  const handle = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
+    if (!/\.(xlsx|xls)$/i.test(f.name)) {
+      toast({ title: "Invalid file type", description: "Please upload .xlsx or .xls", variant: "destructive" });
+      return;
+    }
 
-    console.log("Monthly files selected:", files.length);
-    setIsUploading(true);
-
+    setUploading(true);
     try {
-      let totalProcessed = 0;
-      const processedFiles: string[] = [];
+      // parseMonthlyExcelFile returns { date: "YYYY-MM-DD", data: MonthlyInvestorData[] }
+      const { date, data } = await parseMonthlyExcelFile(f);
 
-      for (const file of files) {
-        // Check if it's an Excel file
-        if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
-          toast({
-            title: "Invalid file type",
-            description: `Skipping ${file.name} - Please upload Excel files only (.xlsx or .xls)`,
-            variant: "destructive",
-          });
-          continue;
-        }
+      // map to {date, name, category, shares}
+      const rows = data.map(r => ({
+        date,
+        name:     r.name,
+        category: r.category,
+        shares:   r.monthlyShares[date] || 0
+      }));
 
-        console.log(`Processing file: ${file.name}`);
-        const { date, data } = await parseMonthlyExcelFile(file);
-        
-        await saveMonthlyData(date, data, file.name);
-        totalProcessed += data.length;
-        processedFiles.push(file.name);
-        
-        console.log(`Processed ${file.name} for ${date}: ${data.length} records`);
-      }
-
-      setUploadedFiles(prev => [...prev, ...processedFiles]);
-      
-      // Refresh uploaded files list
-      const updatedFiles = await getUploadedFiles();
-      setActualUploadedFiles(updatedFiles);
-      
-      toast({
-        title: "Files uploaded successfully",
-        description: `Processed ${processedFiles.length} files with ${totalProcessed} total investor records`,
-      });
-      
+      const resp = await axios.post(`${API}/monthly`, rows);
+      toast({ title: "Uploaded", description: `Inserted ${resp.data.inserted} rows for ${date}` });
       onDataLoaded();
-      
-    } catch (error) {
-      console.error("Error uploading files:", error);
+    } catch (err: any) {
+      console.error(err);
       toast({
-        title: "Error uploading files",
-        description: "There was an error processing your files. Please check the format and try again.",
-        variant: "destructive",
+        title: "Upload failed",
+        description: err.response?.data?.error || err.message,
+        variant: "destructive"
       });
     } finally {
-      setIsUploading(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-    }
-  };
-
-  const handleExportExcel = async () => {
-    try {
-      await exportToExcel();
-      toast({
-        title: "Excel exported",
-        description: "Your investor data has been downloaded as Excel with color formatting",
-      });
-    } catch (error) {
-      toast({
-        title: "Export failed",
-        description: "There was an error exporting to Excel",
-        variant: "destructive",
-      });
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
     }
   };
 
   return (
-    <div className="flex items-center space-x-4">
+    <div>
       <Input
-        ref={fileInputRef}
+        ref={fileRef}
         type="file"
         accept=".xlsx,.xls"
-        onChange={handleFileUpload}
+        onChange={handle}
         className="hidden"
-        multiple
       />
-      <Button 
-        type="button"
-        onClick={() => fileInputRef.current?.click()}
-        className="bg-blue-600 hover:bg-blue-700"
-        disabled={isUploading}
-        size="sm"
+      <Button
+        onClick={() => fileRef.current?.click()}
+        disabled={uploading}
       >
-        <Upload className="w-4 h-4 mr-2" />
-        {isUploading ? "Uploading..." : "Upload Monthly Data"}
+        <Upload className="mr-2" /> {uploading ? "Uploading..." : "Upload Monthly Data"}
       </Button>
-      
-      <Button 
-        onClick={handleExportExcel}
-        variant="outline"
-        size="sm"
-      >
-        <FileSpreadsheet className="w-4 h-4 mr-2" />
-        Export Excel
-      </Button>
-      
-      {actualUploadedFiles.length > 0 && (
-        <span className="text-sm text-green-600">
-          ✓ {actualUploadedFiles.length} file(s) uploaded
-        </span>
-      )}
     </div>
   );
 }
