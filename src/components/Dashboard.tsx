@@ -5,9 +5,7 @@ import {
   filterInvestors,
   generateAnalyticsSummary,
   analyzeInvestorBehavior,
-  filterInvestorsByConditions
-} from "@/utils/dataUtils";
-import {
+  filterInvestorsByConditions,
   getUniqueCategories,
   getUniqueFundGroups
 } from "@/utils/dataUtils";
@@ -43,23 +41,35 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 /* ------------------------------------------------------------------ */
-/* Environment                                                        */
+/* Base-URL helper                                                    */
 /* ------------------------------------------------------------------ */
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+/**
+ * 1.  If VITE_API_URL is provided            → use it
+ * 2.  Else (production build)                → window.location.origin
+ * 3.  Else (Vite dev server - localhost)     → http://localhost:5000
+ */
+function apiBase(): string {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl) return envUrl.endsWith("/") ? envUrl.slice(0, -1) : envUrl;
+
+  // `import.meta.env.DEV` is true only under `npm run dev`
+  if (import.meta.env.DEV) return "http://localhost:5000";
+  return window.location.origin;          // production — same origin
+}
+const API = `${apiBase()}/api`;
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
-/** Derive fund-group = first two words upper-cased */
 function fundGroupOf(name: string): string {
-  const words = name.trim().split(/\s+/);
-  return words.slice(0, 2).join(" ").toUpperCase();
+  const w = name.trim().split(" ").filter(Boolean);
+  return ((w[0] || "") + (w[1] ? " " + w[1] : "")).toUpperCase();
 }
-
-/** Group investors that share identical fundGroup */
-function groupInvestorsByFund(data: MonthlyInvestorData[]): MonthlyInvestorData[] {
+function groupInvestorsByFund(
+  data: MonthlyInvestorData[]
+): MonthlyInvestorData[] {
   const map = new Map<string, MonthlyInvestorData>();
 
   for (const inv of data) {
@@ -74,16 +84,14 @@ function groupInvestorsByFund(data: MonthlyInvestorData[]): MonthlyInvestorData[
         individualInvestors: []
       });
     }
-
     const grp = map.get(fg)!;
     grp.individualInvestors!.push(inv);
 
-    // merge monthly shares
-    for (const [month, shares] of Object.entries(inv.monthlyShares)) {
-      grp.monthlyShares[month] = (grp.monthlyShares[month] || 0) + shares;
+    for (const m in inv.monthlyShares) {
+      grp.monthlyShares[m] =
+        (grp.monthlyShares[m] || 0) + inv.monthlyShares[m];
     }
   }
-
   return Array.from(map.values());
 }
 
@@ -93,82 +101,39 @@ function groupInvestorsByFund(data: MonthlyInvestorData[]): MonthlyInvestorData[
 
 export default function Dashboard() {
   /* ----------------------------- state ---------------------------- */
-
   const [monthlyData, setMonthlyData] = useState<MonthlyInvestorData[]>([]);
-  const [availableMonths, setAvailableMonths] = useState<string[]>([]);
-  const [monthlyCategories, setMonthlyCategories] = useState<string[]>([]);
   const [isGrouped, setIsGrouped] = useState(true);
 
-  /* --------------------------- data fetch ------------------------- */
-
-  useEffect(() => {
+  /* --------------------------- fetch ------------------------------ */
+  const load = () =>
     axios
       .get<MonthlyInvestorData[]>(`${API}/monthly`)
-      .then((res) => setMonthlyData(res.data))
-      .catch((err) => console.error("Error fetching monthly:", err));
-  }, []);
+      .then(r => setMonthlyData(r.data))
+      .catch(e => console.error("Error fetching monthly:", e));
 
-  /* ---------------------- derived / memoized ---------------------- */
+  useEffect(load, []);
 
-  const displayMonthlyData = useMemo(
+  /* ---------------------- derived values -------------------------- */
+  const displayData = useMemo(
     () => (isGrouped ? groupInvestorsByFund(monthlyData) : monthlyData),
     [monthlyData, isGrouped]
   );
 
-  const months = useMemo(() => {
+  const availableMonths = useMemo(() => {
     return Array.from(
-      new Set(displayMonthlyData.flatMap((i) => Object.keys(i.monthlyShares)))
+      new Set(displayData.flatMap(i => Object.keys(i.monthlyShares)))
     ).sort();
-  }, [displayMonthlyData]);
+  }, [displayData]);
 
   const categories = useMemo(() => {
-    return Array.from(new Set(displayMonthlyData.map((i) => i.category)));
-  }, [displayMonthlyData]);
+    return Array.from(new Set(displayData.map(i => i.category)));
+  }, [displayData]);
 
-  /* ------------------------ reload helper ------------------------- */
-
-  const reloadMonthly = () => {
-    axios
-      .get<MonthlyInvestorData[]>(`${API}/monthly`)
-      .then((res) => setMonthlyData(res.data))
-      .catch((err) => console.error("Error reloading monthly:", err));
-  };
-
-  /* ----------------------------- UI ------------------------------ */
-
-  if (displayMonthlyData.length === 0) {
-    return (
-      <div className="space-y-8">
-        <div className="text-center">
-          <h1 className="text-3xl font-bold tracking-tight">
-            Investor Analytics Dashboard
-          </h1>
-          <p className="text-muted-foreground mt-2">
-            Upload your monthly investor data to get started
-          </p>
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Upload Monthly Data</CardTitle>
-            <CardDescription>
-              Excel file with columns: NAME, SHARES AS ON {"{DATE}"}, CATEGORY
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <MonthlyFileUpload onDataLoaded={reloadMonthly} />
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  /* --------------- convert for legacy analytics panels ------------ */
-
-  const legacyInvestors: Investor[] = displayMonthlyData.map((inv) => {
-    const m = Object.keys(inv.monthlyShares).sort();
-    const start = inv.monthlyShares[m[0]] || 0;
-    const end = inv.monthlyShares[m[m.length - 1]] || 0;
+  /* ---------------- legacy analytics conversion ------------------ */
+  const legacyInvestors: Investor[] = displayData.map(inv => {
+    const ms = Object.keys(inv.monthlyShares).sort();
+    const start = inv.monthlyShares[ms[0]] || 0;
+    const end = inv.monthlyShares[ms[ms.length - 1]] || 0;
     return {
       name: inv.name,
       boughtOn18: Math.max(0, end - start),
@@ -182,26 +147,46 @@ export default function Dashboard() {
     };
   });
 
-  const legacySummary = generateAnalyticsSummary(legacyInvestors);
+  const legacySummary     = generateAnalyticsSummary(legacyInvestors);
   const legacyComparisons = analyzeInvestorBehavior(legacyInvestors);
 
-  /* ----------------------------- render --------------------------- */
+  /* ------------------------------ UI ----------------------------- */
+  if (displayData.length === 0) {
+    return (
+      <div className="space-y-8">
+        <div className="text-center">
+          <h1 className="text-3xl font-bold">Investor Analytics Dashboard</h1>
+          <p className="text-muted-foreground mt-2">
+            Upload your monthly investor data to get started
+          </p>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Upload Monthly Data</CardTitle>
+            <CardDescription>
+              Excel columns: NAME, SHARES AS ON {"{DATE}"}, CATEGORY
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MonthlyFileUpload onDataLoaded={load} />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
       {/* header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">
-            Investor Analytics Dashboard
-          </h1>
+          <h1 className="text-3xl font-bold">Investor Analytics Dashboard</h1>
           <p className="text-muted-foreground">
-            Monthly analysis across {months.length} months (
-            {getUniqueInvestorCount(displayMonthlyData)} unique investors
+            Monthly analysis across {availableMonths.length} months (
+            {getUniqueInvestorCount(displayData)} unique investors
             {isGrouped ? "/fund groups" : ""})
           </p>
         </div>
-
         <div className="flex items-center space-x-4">
           <div className="flex items-center space-x-2">
             <Switch
@@ -211,70 +196,64 @@ export default function Dashboard() {
             />
             <Label htmlFor="group-investors">Group by fund</Label>
           </div>
-          <MonthlyFileUpload onDataLoaded={reloadMonthly} />
+          <MonthlyFileUpload onDataLoaded={load} />
         </div>
       </div>
 
-      {/* Tabs */}
-      <Tabs defaultValue="trends" className="w-full">
+      {/* tabs */}
+      <Tabs defaultValue="trends">
         <TabsList>
           <TabsTrigger value="trends">Monthly Trends</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
           <TabsTrigger value="table">Data Table</TabsTrigger>
         </TabsList>
 
-        {/* --- Trends --- */}
-        <TabsContent value="trends" className="space-y-6">
+        {/* trends */}
+        <TabsContent value="trends">
           <MonthlyTrendChart
-            data={displayMonthlyData}
-            availableMonths={months}
+            data={displayData}
+            availableMonths={availableMonths}
             categories={categories}
           />
         </TabsContent>
 
-        {/* --- Analytics --- */}
+        {/* analytics */}
         <TabsContent value="analytics" className="space-y-6">
-          {months.length < 2 ? (
+          {availableMonths.length < 2 ? (
             <Card>
-              <CardContent className="p-6">
-                <p className="text-center text-muted-foreground">
-                  Upload at least 2 months of data to see analytics charts
-                </p>
+              <CardContent className="p-6 text-center text-muted-foreground">
+                Upload at least 2 months of data to see analytics charts
               </CardContent>
             </Card>
           ) : (
             <>
               <AnalyticsSummary summary={legacySummary} />
-
-              <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
+              <div className="grid gap-4 lg:grid-cols-2">
                 <InvestorSentimentChart investors={legacyInvestors} />
                 <TopMoversChart investors={legacyInvestors} />
               </div>
-
               {legacyComparisons.length > 0 && (
-                <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
+                <div className="grid gap-4 lg:grid-cols-2">
                   <BehaviorAnalysisChart comparisons={legacyComparisons} />
                   <FundGroupChart comparisons={legacyComparisons} />
                 </div>
               )}
-
-              <div className="grid gap-4 grid-cols-1 lg:grid-cols-3">
+              <div className="grid gap-4 lg:grid-cols-3">
                 <NetPositionChart investors={legacyInvestors} />
                 <CategoryDistribution investors={legacyInvestors} />
                 <VolumeAnalysisChart investors={legacyInvestors} />
               </div>
-
               <TrendAnalysis investors={legacyInvestors} />
               <InvestorTrendChart investors={legacyInvestors} />
             </>
           )}
         </TabsContent>
 
-        {/* --- Table --- */}
-        <TabsContent value="table" className="space-y-6">
+        {/* table */}
+        <TabsContent value="table">
           <MonthlyDataTable
-            data={displayMonthlyData}
-            availableMonths={months}
+            data={displayData}
+            availableMonths={availableMonths}
             categories={categories}
           />
         </TabsContent>

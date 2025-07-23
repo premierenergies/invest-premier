@@ -6,13 +6,24 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
 import { Upload } from "lucide-react";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+/* ------------------------------------------------------------------ */
+/* Base-URL helper (identical logic to Dashboard)                      */
+/* ------------------------------------------------------------------ */
+function apiBase(): string {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl) return envUrl.endsWith("/") ? envUrl.slice(0, -1) : envUrl;
+  if (import.meta.env.DEV) return "http://localhost:5000";
+  return window.location.origin;
+}
+const API = `${apiBase()}/api`;
 
 interface MonthlyFileUploadProps {
   onDataLoaded: () => void;
 }
 
-export default function MonthlyFileUpload({ onDataLoaded }: MonthlyFileUploadProps) {
+export default function MonthlyFileUpload({
+  onDataLoaded
+}: MonthlyFileUploadProps) {
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -21,26 +32,31 @@ export default function MonthlyFileUpload({ onDataLoaded }: MonthlyFileUploadPro
     const f = e.target.files?.[0];
     if (!f) return;
 
-    if (!/\.(xlsx|xls)$/i.test(f.name)) {
-      toast({ title: "Invalid file type", description: "Please upload .xlsx or .xls", variant: "destructive" });
+    if (!f.name.toLowerCase().endsWith(".xlsx") && !f.name.toLowerCase().endsWith(".xls")) {
+      toast({
+        title: "Invalid file type",
+        description: "Please upload .xlsx or .xls",
+        variant: "destructive"
+      });
       return;
     }
 
     setUploading(true);
     try {
-      // parseMonthlyExcelFile returns { date: "YYYY-MM-DD", data: MonthlyInvestorData[] }
       const { date, data } = await parseMonthlyExcelFile(f);
 
-      // map to {date, name, category, shares}
       const rows = data.map(r => ({
         date,
-        name:     r.name,
+        name: r.name,
         category: r.category,
-        shares:   r.monthlyShares[date] || 0
+        shares: r.monthlyShares[date] || 0
       }));
 
       const resp = await axios.post(`${API}/monthly`, rows);
-      toast({ title: "Uploaded", description: `Inserted ${resp.data.inserted} rows for ${date}` });
+      toast({
+        title: "Uploaded",
+        description: `Inserted ${resp.data.inserted} records for ${date}`
+      });
       onDataLoaded();
     } catch (err: any) {
       console.error(err);
@@ -64,11 +80,9 @@ export default function MonthlyFileUpload({ onDataLoaded }: MonthlyFileUploadPro
         onChange={handle}
         className="hidden"
       />
-      <Button
-        onClick={() => fileRef.current?.click()}
-        disabled={uploading}
-      >
-        <Upload className="mr-2" /> {uploading ? "Uploading..." : "Upload Monthly Data"}
+      <Button onClick={() => fileRef.current?.click()} disabled={uploading}>
+        <Upload className="mr-2" />
+        {uploading ? "Uploading..." : "Upload Monthly Data"}
       </Button>
     </div>
   );
