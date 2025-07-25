@@ -6,6 +6,7 @@ const https = require("https");
 const express = require("express");
 const cors = require("cors");
 const compression = require("compression");
+const mssqlAuth = require("mssql");
 
 require("dotenv").config();
 
@@ -204,94 +205,102 @@ function getFundGroup(name) {
   return ((p[0] || "") + (p[1] ? " " + p[1] : "")).toUpperCase();
 }
 
-// Helper to send mail via Graph
-async function sendEmail(toEmail, subject, htmlContent) {
-  const message = {
-    subject,
-    body: { contentType: "HTML", content: htmlContent },
-    toRecipients: [{ emailAddress: { address: toEmail } }],
-  };
-  await graphClient
-    .api(`/users/${process.env.SENDER_EMAIL}/sendMail`)
-    .post({ message, saveToSentItems: "true" });
-}
-
-// 2) Send OTP
+/*****************************************************************/
+/*  SEND‑OTP                                                      */
+/*****************************************************************/
 app.post("/api/send-otp", async (req, res) => {
-  const { email } = req.body;
-  const fullEmail = `${email}@premierenergies.com`;
+  const fullEmail = normalise(req.body.email);
+
+  // 0) restrict to allowed users
+  if (!ALLOWED.has(fullEmail)) {
+    return res.status(403).json({
+      message: "Access denied: this dataset is restricted.",
+    });
+  }
 
   try {
-    // 2a) connect to auth DB
-    await mssql.connect(authDbConfig);
+    await mssqlAuth.connect(authDbConfig);
 
-    // 2b) ensure active user
-    const emp = await mssql.query`
-      SELECT EmpID FROM EMP
-       WHERE EmpEmail = ${fullEmail} AND ActiveFlag = 1
-    `;
+    // 1) optional: verify employee record
+    const emp = await mssqlAuth.query`
+        SELECT EmpID FROM EMP
+         WHERE EmpEmail = ${fullEmail} AND ActiveFlag = 1
+      `;
     if (!emp.recordset.length) {
       return res.status(404).json({
-        message: "No registered @premierenergies.com account found.",
+        message: "No @premierenergies.com account found.",
       });
     }
 
-    // 2c) generate & upsert OTP
-    const LEmpID = emp.recordset[0].EmpID;
+    // 2) generate OTP & expiry
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const expiry = new Date(Date.now() + 5 * 60 * 1000);
 
-    await mssql.query`
-      MERGE Login AS tgt
-      USING (SELECT ${fullEmail} AS Username) AS src
-        ON tgt.Username=src.Username
-      WHEN MATCHED THEN 
-        UPDATE SET OTP=${otp}, OTP_Expiry=${expiry}
-      WHEN NOT MATCHED THEN
-        INSERT(Username,OTP,OTP_Expiry,LEmpID)
-        VALUES(${fullEmail},${otp},${expiry},${LEmpID});
-    `;
+    // 3) upsert into Login
+    await mssqlAuth.query`
+        MERGE Login AS t
+        USING (SELECT ${fullEmail} AS U) AS s
+          ON t.Username = s.U
+        WHEN MATCHED THEN
+          UPDATE SET OTP = ${otp}, OTP_Expiry = ${expiry}
+        WHEN NOT MATCHED THEN
+          INSERT (Username,OTP,OTP_Expiry)
+          VALUES (${fullEmail},${otp},${expiry});
+      `;
 
-    // 2d) send email
+    // 4) send branded email
+    const subject = "Your Investor Insights One‑Time Password";
     const html = `
-      <p>Your one‑time login code is:</p>
-      <h2>${otp}</h2>
-      <p>Expires in 5 minutes.</p>
-    `;
-    await sendEmail(fullEmail, "Your Login OTP", html);
+        <div style="font-family:Arial;color:#333;line-height:1.5;">
+          <h2 style="color:#0052cc;margin-bottom:.5em;">
+            Welcome to Investor Insights
+          </h2>
+          <p>Your one‑time password (OTP) is:</p>
+          <p style="font-size:24px;font-weight:bold;color:#0052cc;">
+            ${otp}
+          </p>
+          <p>This code expires in <strong>5 minutes</strong>.</p>
+          <hr style="border:none;border-top:1px solid #eee;margin:2em 0;">
+          <p style="font-size:12px;color:#777;">
+            If you didn’t request this, ignore this email.<br>
+            Need help? contact <a href="mailto:aarnav.singh@premierenergies.com">
+            support</a>.
+          </p>
+          <p style="margin-top:2em;">
+            Regards,<br/><strong>Team Investor Insights</strong>
+          </p>
+        </div>`;
+    await sendEmail(fullEmail, subject, html);
 
-    res.json({ message: "OTP sent" });
-  } catch (e) {
-    console.error("send-otp error", e);
-    res.status(500).json({ message: "Server error" });
+    return res.json({ message: "OTP sent successfully" });
+  } catch (err) {
+    console.error("send-otp error", err);
+    return res.status(500).json({ message: "Server error" });
   }
 });
-
-// 3) Verify OTP
+/*****************************************************************/
+/*  VERIFY‑OTP                                                    */
+/*****************************************************************/
 app.post("/api/verify-otp", async (req, res) => {
-  const { email, otp } = req.body;
-  const fullEmail = `${email}@premierenergies.com`;
+  const fullEmail = normalise(req.body.email);
+  const { otp } = req.body;
 
   try {
-    await mssql.connect(authDbConfig);
-    const lookup = await mssql.query`
-      SELECT LEmpID,OTP_Expiry FROM Login
-       WHERE Username=${fullEmail} AND OTP=${otp}
-    `;
+    await mssqlAuth.connect(authDbConfig);
+    const lookup = await mssqlAuth.query`
+        SELECT OTP_Expiry FROM Login
+         WHERE Username = ${fullEmail} AND OTP = ${otp}
+      `;
     if (!lookup.recordset.length) {
       return res.status(400).json({ message: "Invalid OTP" });
     }
-    const { LEmpID, OTP_Expiry } = lookup.recordset[0];
-    if (new Date() > OTP_Expiry) {
+    if (new Date() > lookup.recordset[0].OTP_Expiry) {
       return res.status(400).json({ message: "OTP expired" });
     }
-
-    // you could establish a session here, or simply return success
-    // e.g. req.session.empID = LEmpID;
-    res.json({ message: "OTP verified", empID: LEmpID });
-  } catch (e) {
-    console.error("verify-otp error", e);
-    res.status(500).json({ message: "Server error" });
+    return res.json({ message: "OTP verified" });
+  } catch (err) {
+    console.error("verify-otp error", err);
+    return res.status(500).json({ message: "Server error" });
   }
 });
 

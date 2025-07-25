@@ -1,11 +1,9 @@
-// src/pages/Login.tsx
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import ii from "../assets/ii.svg";    // top-left icon replaced
-import rightlogo from "../assets/P.png"; // right logo remains same
+import ii from "../assets/ii.png";      // left logo
+import rightlogo from "../assets/P.png"; // right logo
 
 const API_BASE_URL = window.location.origin;
-
 type Step = "enterEmail" | "enterOtp";
 
 const Login: React.FC = () => {
@@ -16,7 +14,6 @@ const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Step 1: send OTP
   const sendOtp = async () => {
     setLoading(true);
     setError(null);
@@ -39,7 +36,6 @@ const Login: React.FC = () => {
     }
   };
 
-  // Step 2: verify OTP
   const verifyOtp = async () => {
     setLoading(true);
     setError(null);
@@ -66,8 +62,9 @@ const Login: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* Header */}
-      <header className="w-full p-4 flex justify-between items-center bg-white shadow-sm">
-        <img src={ii} alt="Logo" className="h-16 object-contain" />
+      <header className="w-full flex justify-between items-center bg-white shadow-sm">
+        {/* same height (h-16), wider (w-32) */}
+        <img src={ii} alt="Logo" className="h-24 object-contain" />
         <img src={rightlogo} alt="Right Logo" className="h-16 object-contain" />
       </header>
 
@@ -78,13 +75,15 @@ const Login: React.FC = () => {
           {error && <div className="mb-4 text-red-600 text-center">{error}</div>}
 
           {step === "enterEmail" ? (
-            <>  
-              <label htmlFor="email" className="block text-sm font-medium mb-1">Email</label>
+            <>
+              <label htmlFor="email" className="block text-sm font-medium mb-1">
+                Email
+              </label>
               <input
                 id="email"
                 type="text"
                 value={email}
-                onChange={e => setEmail(e.target.value)}
+                onChange={(e) => setEmail(e.target.value)}
                 className="w-full border rounded p-2 mb-2"
                 placeholder="your.email"
                 required
@@ -102,12 +101,14 @@ const Login: React.FC = () => {
             </>
           ) : (
             <>
-              <label htmlFor="otp" className="block text-sm font-medium mb-1">Enter OTP</label>
+              <label htmlFor="otp" className="block text-sm font-medium mb-1">
+                Enter OTP
+              </label>
               <input
                 id="otp"
                 type="text"
                 value={otp}
-                onChange={e => setOtp(e.target.value)}
+                onChange={(e) => setOtp(e.target.value)}
                 className="w-full border rounded p-2 mb-4"
                 placeholder="6‑digit code"
                 required
