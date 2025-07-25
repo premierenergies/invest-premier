@@ -1,18 +1,31 @@
-
-import { useEffect, useRef } from 'react';
-import { 
-  Chart as ChartJS, 
-  ArcElement, 
-  Tooltip, 
+// src/components/charts/CategoryDistributionChart.tsx
+import React, { useEffect, useRef, useState, useMemo } from 'react';
+import {
+  Chart as ChartJS,
+  ArcElement,
+  Tooltip,
   Legend,
-  ChartData, 
+  ChartData,
   ChartOptions,
   PieController
 } from 'chart.js';
 import { Investor } from '@/types';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent
+} from '@/components/ui/card';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { X } from 'lucide-react';
 
-// Properly register all required components
 ChartJS.register(
   ArcElement,
   Tooltip,
@@ -20,134 +33,167 @@ ChartJS.register(
   PieController
 );
 
+interface Club {
+  id: number;
+  name: string;
+  categories: string[];
+}
+
 interface CategoryDistributionProps {
   investors: Investor[];
 }
 
 export default function CategoryDistribution({ investors }: CategoryDistributionProps) {
-  const chartRef = useRef<HTMLCanvasElement | null>(null);
-  const chartInstance = useRef<ChartJS | null>(null);
+  const pieRef = useRef<HTMLCanvasElement | null>(null);
+  const pieInstance = useRef<ChartJS | null>(null);
 
-  useEffect(() => {
-    if (!chartRef.current || !investors.length) return;
+  // derive unique categories
+  const categories = useMemo(
+    () => Array.from(new Set(investors.map(inv => inv.category || 'Unknown'))),
+    [investors]
+  );
 
-    // Destroy previous chart if it exists
-    if (chartInstance.current) {
-      chartInstance.current.destroy();
+  // clubs state
+  const [clubs, setClubs] = useState<Club[]>([]);
+  const [nextId, setNextId] = useState(1);
+  const [editingClub, setEditingClub] = useState<Club | null>(null);
+  const [newName, setNewName] = useState('');
+  const [newCats, setNewCats] = useState<string[]>([]);
+
+  const openCreator = () => {
+    setEditingClub({ id: -1, name: '', categories: [] });
+    setNewName('');
+    setNewCats([]);
+  };
+  const openEditor = (club: Club) => {
+    setEditingClub({ ...club });
+    setNewName(club.name);
+    setNewCats([...club.categories]);
+  };
+  const saveClub = () => {
+    if (!newName.trim() || newCats.length < 1) return;
+    if (editingClub?.id === -1) {
+      setClubs(prev => [...prev, { id: nextId, name: newName.trim(), categories: newCats }]);
+      setNextId(prev => prev + 1);
+    } else if (editingClub) {
+      setClubs(prev => prev.map(c => c.id === editingClub.id ? { ...c, name: newName.trim(), categories: newCats } : c));
     }
+    setEditingClub(null);
+  };
+  const cancelEdit = () => setEditingClub(null);
+  const removeClub = (id: number) => setClubs(prev => prev.filter(c => c.id !== id));
 
-    // Group investors by category
-    const categoryGroups: Record<string, number> = {};
-    investors.forEach(investor => {
-      const category = investor.category || 'Unknown';
-      if (!categoryGroups[category]) {
-        categoryGroups[category] = 0;
-      }
-      categoryGroups[category]++;
-    });
+  // compute counts for pie (club or raw categories)
+  const pieCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    if (clubs.length > 0) {
+      // for each club
+      clubs.forEach(club => {
+        counts[club.name] = investors.filter(inv => club.categories.includes(inv.category)).length;
+      });
+      // remaining categories
+      const used = new Set(clubs.flatMap(c => c.categories));
+      categories.filter(cat => !used.has(cat)).forEach(cat => {
+        counts[cat] = investors.filter(inv => inv.category === cat).length;
+      });
+    } else {
+      categories.forEach(cat => {
+        counts[cat] = investors.filter(inv => inv.category === cat).length;
+      });
+    }
+    return counts;
+  }, [investors, clubs, categories]);
 
-    // Prepare data for chart
-    const labels = Object.keys(categoryGroups);
-    const data = Object.values(categoryGroups);
-    
-    // Create color palette
-    const backgroundColors = [
-      'rgba(6, 182, 212, 0.7)',   // Teal
-      'rgba(59, 130, 246, 0.7)',  // Blue
-      'rgba(16, 185, 129, 0.7)',  // Green
-      'rgba(245, 158, 11, 0.7)',  // Amber
-      'rgba(239, 68, 68, 0.7)',   // Red
-      'rgba(168, 85, 247, 0.7)',  // Purple
-      'rgba(236, 72, 153, 0.7)',  // Pink
+  // render pie
+  useEffect(() => {
+    if (!pieRef.current) return;
+    pieInstance.current?.destroy();
+    const labels = Object.keys(pieCounts);
+    const data = Object.values(pieCounts);
+    const palette = [
+      'rgba(6, 182, 212, 0.7)', 'rgba(59, 130, 246, 0.7)', 'rgba(16, 185, 129, 0.7)',
+      'rgba(245, 158, 11, 0.7)', 'rgba(239, 68, 68, 0.7)', 'rgba(168, 85, 247, 0.7)',
+      'rgba(236, 72, 153, 0.7)', 'rgba(34, 197, 94, 0.7)', 'rgba(251, 191, 36, 0.7)',
+      'rgba(156, 163, 175, 0.7)'
     ];
-
-    // Create chart data and options with proper typing
-    const chartData: ChartData<'pie', number[], string> = {
-      labels,
-      datasets: [
-        {
-          data,
-          backgroundColor: backgroundColors.slice(0, labels.length),
-          borderColor: 'white',
-          borderWidth: 1
-        }
-      ]
-    };
-
-    const chartOptions: ChartOptions<'pie'> = {
+    const bg = labels.map((_, i) => palette[i % palette.length]);
+    const chartData: ChartData<'pie', number[], string> = { labels, datasets: [{ data, backgroundColor: bg, borderColor: 'white', borderWidth: 1 }] };
+    const chartOpts: ChartOptions<'pie'> = {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: {
-          position: 'right',
-          labels: {
-            padding: 20,
-            usePointStyle: true,
-            pointStyle: 'circle'
-          }
-        },
+        legend: { position: 'right' },
         tooltip: {
           callbacks: {
-            label: function(context) {
-              const value = context.raw as number;
-              const total = (context.chart.data.datasets[0].data as number[]).reduce(
-                (sum, val) => sum + val, 0
-              );
-              const percentage = Math.round((value / total) * 100);
-              return `${context.label}: ${value} (${percentage}%)`;
+            label(ctx) {
+              const val = ctx.raw as number;
+              const tot = data.reduce((s, v) => s + v, 0);
+              return `${ctx.label}: ${val} (${Math.round(val/tot*100)}%)`;
             }
           }
         }
       }
     };
-
-    // Create chart
-    const ctx = chartRef.current.getContext('2d');
-    
-    if (ctx) {
-      // Use a type assertion to resolve the type compatibility issue
-      chartInstance.current = new ChartJS(ctx, {
-        type: 'pie',
-        data: chartData,
-        options: chartOptions
-      }) as ChartJS;
-    }
-    
-    return () => {
-      if (chartInstance.current) {
-        chartInstance.current.destroy();
-      }
-    };
-  }, [investors]);
-
-  if (!investors.length) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Investor Categories</CardTitle>
-          <CardDescription>
-            No data available. Please upload investor data.
-          </CardDescription>
-        </CardHeader>
-      </Card>
-    );
-  }
+    const ctx = pieRef.current.getContext('2d');
+    if (ctx) pieInstance.current = new ChartJS(ctx, { type: 'pie', data: chartData, options: chartOpts });
+    return () => pieInstance.current?.destroy();
+  }, [pieCounts]);
 
   return (
-    <Card>
+    <Card className="col-span-full">
       <CardHeader>
         <CardTitle>Investor Categories</CardTitle>
-        <CardDescription>
-          Distribution of investors by category
-        </CardDescription>
+        <CardDescription>Distribution of investors by category</CardDescription>
+
+        <div className="mt-4">
+          <Popover open={editingClub != null} onOpenChange={open => { if (!open) cancelEdit(); }}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" onClick={openCreator}>Create Club</Button>
+            </PopoverTrigger>
+            <PopoverContent side="bottom" className="w-64">
+              <div className="space-y-2">
+                <Label>Club Name</Label>
+                <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Enter club name" />
+                <Label>Select Categories</Label>
+                <ScrollArea className="h-40">
+                  {categories.map(cat => (
+                    <div key={cat} className="flex items-center py-1">
+                      <Checkbox
+                        id={`cat-${cat}`}
+                        checked={newCats.includes(cat)}
+                        onCheckedChange={checked => setNewCats(prev => checked ? [...prev, cat] : prev.filter(x => x !== cat))}
+                      />
+                      <Label htmlFor={`cat-${cat}`} className="ml-2">{cat}</Label>
+                    </div>
+                  ))}
+                </ScrollArea>
+                <div className="flex justify-end gap-2 mt-2">
+                  <Button variant="outline" onClick={cancelEdit}>Cancel</Button>
+                  <Button onClick={saveClub} disabled={!newName.trim() || newCats.length < 1}>Save</Button>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {clubs.map(c => (
+              <Badge
+                key={c.id}
+                variant="secondary"
+                className="flex items-center gap-1 cursor-pointer"
+                onClick={() => openEditor(c)}
+              >
+                {c.name}
+                <X
+                  className="h-4 w-4"
+                  onClick={e => { e.stopPropagation(); removeClub(c.id); }}
+                />
+              </Badge>
+            ))}
+          </div>
+        </div>
       </CardHeader>
       <CardContent>
-        <div className="h-[300px]">
-          <canvas ref={chartRef} />
-        </div>
-        <p className="text-sm text-muted-foreground mt-4">
-          This chart shows the distribution of investors across different categories. Each segment represents the number of investors in a specific category, with percentages calculated against the total number of investors. This helps identify which investor types have the highest representation in the dataset.
-        </p>
+        <div className="h-[300px]"><canvas ref={pieRef} /></div>
       </CardContent>
     </Card>
   );

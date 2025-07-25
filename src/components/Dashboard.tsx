@@ -7,36 +7,33 @@ import {
   analyzeInvestorBehavior,
   filterInvestorsByConditions,
   getUniqueCategories,
-  getUniqueFundGroups
+  getUniqueFundGroups,
 } from "@/utils/dataUtils";
 import { getUniqueInvestorCount } from "@/utils/investorUtils";
 import {
   Investor,
   FilterOptions,
   InvestorComparison,
-  MonthlyInvestorData
+  MonthlyInvestorData,
 } from "@/types";
 import MonthlyFileUpload from "./MonthlyFileUpload";
 import MonthlyDataTable from "./MonthlyDataTable";
 import AnalyticsSummary from "./AnalyticsSummary";
-import NetPositionChart from "./charts/NetPositionChart";
 import CategoryDistribution from "./charts/CategoryDistribution";
 import TrendAnalysis from "./charts/TrendAnalysis";
 import InvestorTrendChart from "./charts/InvestorTrendChart";
-import BehaviorAnalysisChart from "./charts/BehaviorAnalysisChart";
-import FundGroupChart from "./charts/FundGroupChart";
-import InvestorSentimentChart from "./charts/InvestorSentimentChart";
 import TopMoversChart from "./charts/TopMoversChart";
-import VolumeAnalysisChart from "./charts/VolumeAnalysisChart";
 import MonthlyTrendChart from "./charts/MonthlyTrendChart";
+import CategoryTimelineChart from "./charts/CategoryTimelineChart";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
-  CardTitle
+  CardTitle,
 } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
+
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -55,7 +52,7 @@ function apiBase(): string {
 
   // `import.meta.env.DEV` is true only under `npm run dev`
   if (import.meta.env.DEV) return "http://localhost:5000";
-  return window.location.origin;          // production — same origin
+  return window.location.origin; // production — same origin
 }
 const API = `${apiBase()}/api`;
 
@@ -81,15 +78,14 @@ function groupInvestorsByFund(
         description: "Grouped fund",
         fundGroup: fg,
         monthlyShares: {},
-        individualInvestors: []
+        individualInvestors: [],
       });
     }
     const grp = map.get(fg)!;
     grp.individualInvestors!.push(inv);
 
     for (const m in inv.monthlyShares) {
-      grp.monthlyShares[m] =
-        (grp.monthlyShares[m] || 0) + inv.monthlyShares[m];
+      grp.monthlyShares[m] = (grp.monthlyShares[m] || 0) + inv.monthlyShares[m];
     }
   }
   return Array.from(map.values());
@@ -108,8 +104,8 @@ export default function Dashboard() {
   const load = () =>
     axios
       .get<MonthlyInvestorData[]>(`${API}/monthly`)
-      .then(r => setMonthlyData(r.data))
-      .catch(e => console.error("Error fetching monthly:", e));
+      .then((r) => setMonthlyData(r.data))
+      .catch((e) => console.error("Error fetching monthly:", e));
 
   useEffect(load, []);
 
@@ -121,16 +117,16 @@ export default function Dashboard() {
 
   const availableMonths = useMemo(() => {
     return Array.from(
-      new Set(displayData.flatMap(i => Object.keys(i.monthlyShares)))
+      new Set(displayData.flatMap((i) => Object.keys(i.monthlyShares)))
     ).sort();
   }, [displayData]);
 
   const categories = useMemo(() => {
-    return Array.from(new Set(displayData.map(i => i.category)));
+    return Array.from(new Set(displayData.map((i) => i.category)));
   }, [displayData]);
 
   /* ---------------- legacy analytics conversion ------------------ */
-  const legacyInvestors: Investor[] = displayData.map(inv => {
+  const legacyInvestors: Investor[] = displayData.map((inv) => {
     const ms = Object.keys(inv.monthlyShares).sort();
     const start = inv.monthlyShares[ms[0]] || 0;
     const end = inv.monthlyShares[ms[ms.length - 1]] || 0;
@@ -143,11 +139,11 @@ export default function Dashboard() {
       netChange: end - start,
       fundGroup: inv.fundGroup,
       startPosition: start,
-      endPosition: end
+      endPosition: end,
     };
   });
 
-  const legacySummary     = generateAnalyticsSummary(legacyInvestors);
+  const legacySummary = generateAnalyticsSummary(legacyInvestors);
   const legacyComparisons = analyzeInvestorBehavior(legacyInvestors);
 
   /* ------------------------------ UI ----------------------------- */
@@ -229,22 +225,34 @@ export default function Dashboard() {
             <>
               <AnalyticsSummary summary={legacySummary} />
               <div className="grid gap-4 lg:grid-cols-2">
-                <InvestorSentimentChart investors={legacyInvestors} />
-                <TopMoversChart investors={legacyInvestors} />
+                {/* <InvestorSentimentChart investors={legacyInvestors} /> */}
+                <div className="col-span-full w-full">
+                  <TopMoversChart
+                    data={displayData}
+                    availableMonths={availableMonths}
+                    categories={categories}
+                  />
+                </div>
               </div>
               {legacyComparisons.length > 0 && (
                 <div className="grid gap-4 lg:grid-cols-2">
-                  <BehaviorAnalysisChart comparisons={legacyComparisons} />
-                  <FundGroupChart comparisons={legacyComparisons} />
+                  {/* <BehaviorAnalysisChart comparisons={legacyComparisons} /> */}
+                  {/* <FundGroupChart comparisons={legacyComparisons} /> */}
                 </div>
               )}
               <div className="grid gap-4 lg:grid-cols-3">
-                <NetPositionChart investors={legacyInvestors} />
+                {/* <NetPositionChart investors={legacyInvestors} /> */}
                 <CategoryDistribution investors={legacyInvestors} />
-                <VolumeAnalysisChart investors={legacyInvestors} />
+                {/* <VolumeAnalysisChart investors={legacyInvestors} /> */}
               </div>
-              <TrendAnalysis investors={legacyInvestors} />
-              <InvestorTrendChart investors={legacyInvestors} />
+              {/*<TrendAnalysis investors={legacyInvestors} />
+              <InvestorTrendChart investors={legacyInvestors} />*/}
+              {/* Shares‑by‑Category timeline chart, at the bottom */}
+              <CategoryTimelineChart
+                data={displayData}
+                availableMonths={availableMonths}
+                categories={categories}
+              />
             </>
           )}
         </TabsContent>

@@ -1,4 +1,3 @@
-
 import { AnalyticsSummary as AnalyticsSummaryType } from "@/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowDown, ArrowUp, Users } from "lucide-react";
@@ -10,7 +9,7 @@ interface AnalyticsSummaryProps {
 export default function AnalyticsSummary({ summary }: AnalyticsSummaryProps) {
   return (
     <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
-      <Card>
+      {/* <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium">Total Investors</CardTitle>
           <Users className="h-4 w-4 text-muted-foreground" />
@@ -21,9 +20,9 @@ export default function AnalyticsSummary({ summary }: AnalyticsSummaryProps) {
             Tracking positions from top investors
           </p>
         </CardContent>
-      </Card>
+      </Card> */}
       
-      <Card>
+      {/* <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium">Net Position</CardTitle>
           {summary.netPosition > 0 ? (
@@ -46,9 +45,9 @@ export default function AnalyticsSummary({ summary }: AnalyticsSummaryProps) {
             Overall position change between periods
           </p>
         </CardContent>
-      </Card>
+      </Card> */}
       
-      <Card>
+      {/* <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium">Top Gainer</CardTitle>
           <ArrowUp className="h-4 w-4 text-dashboard-success" />
@@ -70,9 +69,9 @@ export default function AnalyticsSummary({ summary }: AnalyticsSummaryProps) {
             Largest positive position change
           </p>
         </CardContent>
-      </Card>
+      </Card> */}
       
-      <Card>
+      {/* <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium">Top Seller</CardTitle>
           <ArrowDown className="h-4 w-4 text-dashboard-danger" />
@@ -94,7 +93,7 @@ export default function AnalyticsSummary({ summary }: AnalyticsSummaryProps) {
             Largest negative position change
           </p>
         </CardContent>
-      </Card>
+      </Card> */}
     </div>
   );
 }
