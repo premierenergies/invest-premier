@@ -6,9 +6,8 @@ const https = require("https");
 const express = require("express");
 const cors = require("cors");
 const compression = require("compression");
-const mssqlAuth = require("mssql");
-
-require("dotenv").config();
+const mssql = require("mssql");            // only MSSQL now
+const mssqlAuth = require("mssql");        // auth uses MSSQL
 
 // ── HARD‑CODED CREDS & GRAPH CLIENT (once) ───────────────────────────────────
 const { Client } = require("@microsoft/microsoft-graph-client");
@@ -46,25 +45,14 @@ async function sendEmail(to, subject, html) {
 }
 // ── END GRAPH CLIENT BLOCK ───────────────────────────────────────────────────
 
-// choose driver
-const DB_TYPE = process.env.DB_TYPE === "mysql" ? "mysql" : "mssql";
-
-let mssql, mysql, sql, pool;
-if (DB_TYPE === "mysql") {
-  mysql = require("mysql2/promise");
-} else {
-  mssql = require("mssql");
-  sql = mssql;
-}
-
 const app = express();
 
 /* ------------------------------------------------------------------ */
 /* Middleware                                                         */
 /* ------------------------------------------------------------------ */
-app.use(cors()); // SPA ↔ API
-app.use(express.json({ limit: "100mb" })); // large Excel payloads
-app.use(compression()); // gzip
+app.use(cors());
+app.use(express.json({ limit: "100mb" }));
+app.use(compression());
 
 /* ------------------------------------------------------------------ */
 /* Database Configuration                                             */
@@ -82,29 +70,24 @@ const mssqlConfig = {
   },
 };
 
-// 1) Add this near the top, alongside your other DB configs:
+// // MySQL is no longer used:
+// // const mysql = require("mysql2/promise");
+// // const mysqlConfig = { /* ... */ };
+
+/* ------------------------------------------------------------------ */
+/* Auth DB Configuration                                              */
+/* ------------------------------------------------------------------ */
 const authDbConfig = {
   user: process.env.MSSQL_USER || "SPOT_USER",
   password: process.env.MSSQL_PASSWORD || "Marvik#72@",
   server: process.env.MSSQL_SERVER || "10.0.40.10",
   port: Number(process.env.MSSQL_PORT) || 1433,
-  database: "SPOT", // ← auth database
+  database: "SPOT",
   options: {
     trustServerCertificate: true,
     encrypt: false,
     connectionTimeout: 60000,
   },
-};
-
-const mysqlConfig = {
-  host: process.env.MYSQL_HOST || "localhost",
-  port: Number(process.env.MYSQL_PORT) || 3306,
-  user: process.env.MYSQL_USER || "root",
-  password: process.env.MYSQL_PASSWORD || "Singhcottage@1729",
-  database: process.env.MYSQL_DB || "INVEST",
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
 };
 
 // ── ACCESS LIST & EMAIL NORMALISER ────────────────────────────────────────────
@@ -124,77 +107,46 @@ function normalise(userInput = "") {
 /* ------------------------------------------------------------------ */
 /* Initialize Pool & Ensure Tables                                    */
 /* ------------------------------------------------------------------ */
+let pool;
 async function initDb() {
-  if (DB_TYPE === "mysql") {
-    // MySQL
-    pool = await mysql.createPool(mysqlConfig);
-    console.log(`🚀 MySQL connected → ${mysqlConfig.database}`);
+  // only MSSQL branch retained:
+  pool = await mssql.connect(mssqlConfig);
+  console.log(`🚀 MSSQL connected → ${mssqlConfig.database}`);
 
-    // create tables if not exists
-    await pool.execute(`
-      CREATE TABLE IF NOT EXISTS Investors (
-        InvestorID    INT AUTO_INCREMENT PRIMARY KEY,
-        Name          VARCHAR(255) NOT NULL UNIQUE,
-        Bought        DOUBLE NOT NULL,
-        Sold          DOUBLE NOT NULL,
-        PercentEquity DOUBLE NOT NULL,
-        Category      VARCHAR(100) NOT NULL,
-        NetChange     DOUBLE NOT NULL,
-        FundGroup     VARCHAR(100) NOT NULL,
-        StartPosition DOUBLE NULL,
-        EndPosition   DOUBLE NULL
-      );
-    `);
-    await pool.execute(`
-      CREATE TABLE IF NOT EXISTS MonthlyRecords (
-        RecordID  INT AUTO_INCREMENT PRIMARY KEY,
-        AsOfDate  DATE       NOT NULL,
-        Name      VARCHAR(255) NOT NULL,
-        Category  VARCHAR(100) NULL,
-        Shares    DOUBLE     NOT NULL
-      );
-    `);
-    console.log("✅ MySQL tables ensured (Investors, MonthlyRecords)");
-  } else {
-    // MSSQL
-    pool = await mssql.connect(mssqlConfig);
-    console.log(`🚀 MSSQL connected → ${mssqlConfig.database}`);
+  await pool.request().query(`
+    IF NOT EXISTS (
+      SELECT 1 FROM sys.objects
+      WHERE object_id = OBJECT_ID(N'dbo.Investors') AND type = 'U'
+    )
+    CREATE TABLE dbo.Investors (
+      InvestorID    INT IDENTITY PRIMARY KEY,
+      Name          NVARCHAR(255) NOT NULL UNIQUE,
+      Bought        FLOAT NOT NULL,
+      Sold          FLOAT NOT NULL,
+      PercentEquity FLOAT NOT NULL,
+      Category      NVARCHAR(100) NOT NULL,
+      NetChange     FLOAT NOT NULL,
+      FundGroup     NVARCHAR(100) NOT NULL,
+      StartPosition FLOAT NULL,
+      EndPosition   FLOAT NULL
+    );
+  `);
 
-    await pool.request().query(`
-      IF NOT EXISTS (
-        SELECT 1 FROM sys.objects
-        WHERE object_id = OBJECT_ID(N'dbo.Investors') AND type = 'U'
-      )
-      CREATE TABLE dbo.Investors (
-        InvestorID    INT IDENTITY PRIMARY KEY,
-        Name          NVARCHAR(255) NOT NULL UNIQUE,
-        Bought        FLOAT NOT NULL,
-        Sold          FLOAT NOT NULL,
-        PercentEquity FLOAT NOT NULL,
-        Category      NVARCHAR(100) NOT NULL,
-        NetChange     FLOAT NOT NULL,
-        FundGroup     NVARCHAR(100) NOT NULL,
-        StartPosition FLOAT NULL,
-        EndPosition   FLOAT NULL
-      );
-    `);
+  await pool.request().query(`
+    IF NOT EXISTS (
+      SELECT 1 FROM sys.objects
+      WHERE object_id = OBJECT_ID(N'dbo.MonthlyRecords') AND type = 'U'
+    )
+    CREATE TABLE dbo.MonthlyRecords (
+      RecordID  INT IDENTITY PRIMARY KEY,
+      AsOfDate  DATE NOT NULL,
+      Name      NVARCHAR(255) NOT NULL,
+      Category  NVARCHAR(100) NULL,
+      Shares    FLOAT NOT NULL
+    );
+  `);
 
-    await pool.request().query(`
-      IF NOT EXISTS (
-        SELECT 1 FROM sys.objects
-        WHERE object_id = OBJECT_ID(N'dbo.MonthlyRecords') AND type = 'U'
-      )
-      CREATE TABLE dbo.MonthlyRecords (
-        RecordID  INT IDENTITY PRIMARY KEY,
-        AsOfDate  DATE NOT NULL,
-        Name      NVARCHAR(255) NOT NULL,
-        Category  NVARCHAR(100) NULL,
-        Shares    FLOAT NOT NULL
-      );
-    `);
-
-    console.log("✅ MSSQL tables ensured (Investors, MonthlyRecords)");
-  }
+  console.log("✅ MSSQL tables ensured (Investors, MonthlyRecords)");
 }
 
 /* ------------------------------------------------------------------ */
@@ -211,65 +163,54 @@ function getFundGroup(name) {
 app.post("/api/send-otp", async (req, res) => {
   const fullEmail = normalise(req.body.email);
 
-  // 0) restrict to allowed users
   if (!ALLOWED.has(fullEmail)) {
-    return res.status(403).json({
-      message: "Access denied: this dataset is restricted.",
-    });
+    return res
+      .status(403)
+      .json({ message: "Access denied: this dataset is restricted." });
   }
 
   try {
     await mssqlAuth.connect(authDbConfig);
 
-    // 1) optional: verify employee record
     const emp = await mssqlAuth.query`
-        SELECT EmpID FROM EMP
-         WHERE EmpEmail = ${fullEmail} AND ActiveFlag = 1
-      `;
+      SELECT EmpID FROM EMP
+      WHERE EmpEmail = ${fullEmail} AND ActiveFlag = 1
+    `;
     if (!emp.recordset.length) {
       return res.status(404).json({
         message: "No @premierenergies.com account found.",
       });
     }
 
-    // 2) generate OTP & expiry
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const expiry = new Date(Date.now() + 5 * 60 * 1000);
 
-    // 3) upsert into Login
     await mssqlAuth.query`
-        MERGE Login AS t
-        USING (SELECT ${fullEmail} AS U) AS s
-          ON t.Username = s.U
-        WHEN MATCHED THEN
-          UPDATE SET OTP = ${otp}, OTP_Expiry = ${expiry}
-        WHEN NOT MATCHED THEN
-          INSERT (Username,OTP,OTP_Expiry)
-          VALUES (${fullEmail},${otp},${expiry});
-      `;
+      MERGE Login AS t
+      USING (SELECT ${fullEmail} AS U) AS s
+        ON t.Username = s.U
+      WHEN MATCHED THEN
+        UPDATE SET OTP = ${otp}, OTP_Expiry = ${expiry}
+      WHEN NOT MATCHED THEN
+        INSERT (Username,OTP,OTP_Expiry)
+        VALUES (${fullEmail},${otp},${expiry});
+    `;
 
-    // 4) send branded email
     const subject = "Your Investor Insights One‑Time Password";
     const html = `
-        <div style="font-family:Arial;color:#333;line-height:1.5;">
-          <h2 style="color:#0052cc;margin-bottom:.5em;">
-            Welcome to Investor Insights
-          </h2>
-          <p>Your one‑time password (OTP) is:</p>
-          <p style="font-size:24px;font-weight:bold;color:#0052cc;">
-            ${otp}
-          </p>
-          <p>This code expires in <strong>5 minutes</strong>.</p>
-          <hr style="border:none;border-top:1px solid #eee;margin:2em 0;">
-          <p style="font-size:12px;color:#777;">
-            If you didn’t request this, ignore this email.<br>
-            Need help? contact <a href="mailto:aarnav.singh@premierenergies.com">
-            support</a>.
-          </p>
-          <p style="margin-top:2em;">
-            Regards,<br/><strong>Team Investor Insights</strong>
-          </p>
-        </div>`;
+      <div style="font-family:Arial;color:#333;line-height:1.5;">
+        <h2 style="color:#0052cc;margin-bottom:.5em;">Welcome to Investor Insights</h2>
+        <p>Your one‑time password (OTP) is:</p>
+        <p style="font-size:24px;font-weight:bold;color:#0052cc;">${otp}</p>
+        <p>This code expires in <strong>5 minutes</strong>.</p>
+        <hr style="border:none;border-top:1px solid #eee;margin:2em 0;">
+        <p style="font-size:12px;color:#777;">
+          If you didn’t request this, ignore this email.<br>
+          Need help? contact <a href="mailto:aarnav.singh@premierenergies.com">support</a>.
+        </p>
+        <p style="margin-top:2em;">Regards,<br/><strong>Team Investor Insights</strong></p>
+      </div>
+    `;
     await sendEmail(fullEmail, subject, html);
 
     return res.json({ message: "OTP sent successfully" });
@@ -278,6 +219,7 @@ app.post("/api/send-otp", async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 });
+
 /*****************************************************************/
 /*  VERIFY‑OTP                                                    */
 /*****************************************************************/
@@ -288,9 +230,9 @@ app.post("/api/verify-otp", async (req, res) => {
   try {
     await mssqlAuth.connect(authDbConfig);
     const lookup = await mssqlAuth.query`
-        SELECT OTP_Expiry FROM Login
-         WHERE Username = ${fullEmail} AND OTP = ${otp}
-      `;
+      SELECT OTP_Expiry FROM Login
+      WHERE Username = ${fullEmail} AND OTP = ${otp}
+    `;
     if (!lookup.recordset.length) {
       return res.status(400).json({ message: "Invalid OTP" });
     }
@@ -304,10 +246,8 @@ app.post("/api/verify-otp", async (req, res) => {
   }
 });
 
-// ── LOGOUT ───────────────────────────────────────────────────────────────────
+// ── LOGOUT ───────────────────────────────────────────────────────────────
 app.post("/api/logout", (req, res) => {
-  // simply clear any auth cookies/sessions you’re using (if any)
-  // for now we’ll just return success
   res.json({ message: "Logged out" });
 });
 
@@ -316,131 +256,71 @@ app.post("/api/logout", (req, res) => {
 /* ------------------------------------------------------------------ */
 app.post("/api/investors", async (req, res) => {
   const list = req.body;
-  if (!Array.isArray(list) || list.length === 0) {
+  if (!Array.isArray(list) || !list.length) {
     return res.status(400).json({ error: "Non-empty array expected" });
   }
 
-  if (DB_TYPE === "mysql") {
-    const conn = await pool.getConnection();
-    try {
-      await conn.beginTransaction();
-      for (const inv of list) {
-        await conn.execute(
-          `INSERT INTO Investors
-            (Name,Bought,Sold,PercentEquity,Category,NetChange,FundGroup,StartPosition,EndPosition)
-           VALUES
-            (?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE
-             Bought        = VALUES(Bought),
-             Sold          = VALUES(Sold),
-             PercentEquity = VALUES(PercentEquity),
-             Category      = VALUES(Category),
-             NetChange     = VALUES(NetChange),
-             FundGroup     = VALUES(FundGroup),
-             StartPosition = VALUES(StartPosition),
-             EndPosition   = VALUES(EndPosition);
-          `,
-          [
-            inv.name,
-            inv.boughtOn18,
-            inv.soldOn25,
-            inv.percentToEquity,
-            inv.category,
-            inv.netChange,
-            inv.fundGroup,
-            inv.startPosition ?? null,
-            inv.endPosition ?? null,
-          ]
-        );
-      }
-      await conn.commit();
-      res.json({ success: true, upserted: list.length });
-    } catch (e) {
-      await conn.rollback();
-      console.error("POST /api/investors [MySQL] error:", e);
-      res.status(500).json({ error: e.message });
-    } finally {
-      conn.release();
+  // only MSSQL branch:
+  const tx = new mssql.Transaction(pool);
+  try {
+    await tx.begin();
+    for (const inv of list) {
+      await new mssql.Request(tx)
+        .input("Name", mssql.NVarChar(255), inv.name)
+        .input("Bought", mssql.Float, inv.boughtOn18)
+        .input("Sold", mssql.Float, inv.soldOn25)
+        .input("PercentEquity", mssql.Float, inv.percentToEquity)
+        .input("Category", mssql.NVarChar(100), inv.category)
+        .input("NetChange", mssql.Float, inv.netChange)
+        .input("FundGroup", mssql.NVarChar(100), inv.fundGroup)
+        .input("StartPos", mssql.Float, inv.startPosition ?? null)
+        .input("EndPos", mssql.Float, inv.endPosition ?? null)
+        .query(`
+          MERGE dbo.Investors AS T
+          USING (SELECT @Name AS Name) AS S ON T.Name = S.Name
+          WHEN MATCHED THEN UPDATE SET
+            Bought        = @Bought,
+            Sold          = @Sold,
+            PercentEquity = @PercentEquity,
+            Category      = @Category,
+            NetChange     = @NetChange,
+            FundGroup     = @FundGroup,
+            StartPosition = @StartPos,
+            EndPosition   = @EndPos
+          WHEN NOT MATCHED THEN INSERT
+            (Name,Bought,Sold,PercentEquity,Category,
+             NetChange,FundGroup,StartPosition,EndPosition)
+            VALUES
+            (@Name,@Bought,@Sold,@PercentEquity,@Category,
+             @NetChange,@FundGroup,@StartPos,@EndPos);
+        `);
     }
-  } else {
-    const tx = new sql.Transaction(pool);
-    try {
-      await tx.begin();
-      for (const inv of list) {
-        await new sql.Request(tx)
-          .input("Name", sql.NVarChar(255), inv.name)
-          .input("Bought", sql.Float, inv.boughtOn18)
-          .input("Sold", sql.Float, inv.soldOn25)
-          .input("PercentEquity", sql.Float, inv.percentToEquity)
-          .input("Category", sql.NVarChar(100), inv.category)
-          .input("NetChange", sql.Float, inv.netChange)
-          .input("FundGroup", sql.NVarChar(100), inv.fundGroup)
-          .input("StartPos", sql.Float, inv.startPosition ?? null)
-          .input("EndPos", sql.Float, inv.endPosition ?? null).query(`
-            MERGE dbo.Investors AS T
-            USING (SELECT @Name AS Name) AS S ON T.Name = S.Name
-            WHEN MATCHED THEN UPDATE SET
-              Bought        = @Bought,
-              Sold          = @Sold,
-              PercentEquity = @PercentEquity,
-              Category      = @Category,
-              NetChange     = @NetChange,
-              FundGroup     = @FundGroup,
-              StartPosition = @StartPos,
-              EndPosition   = @EndPos
-            WHEN NOT MATCHED THEN INSERT
-              (Name,Bought,Sold,PercentEquity,Category,
-               NetChange,FundGroup,StartPosition,EndPosition)
-              VALUES
-              (@Name,@Bought,@Sold,@PercentEquity,@Category,
-               @NetChange,@FundGroup,@StartPos,@EndPos);
-          `);
-      }
-      await tx.commit();
-      res.json({ success: true, upserted: list.length });
-    } catch (e) {
-      await tx.rollback();
-      console.error("POST /api/investors [MSSQL] error:", e);
-      res.status(500).json({ error: e.message });
-    }
+    await tx.commit();
+    res.json({ success: true, upserted: list.length });
+  } catch (e) {
+    await tx.rollback();
+    console.error("POST /api/investors error:", e);
+    res.status(500).json({ error: e.message });
   }
 });
 
 app.get("/api/investors", async (_, res) => {
   try {
-    if (DB_TYPE === "mysql") {
-      const [rows] = await pool.execute(`
-        SELECT
-          Name,
-          Bought        AS boughtOn18,
-          Sold          AS soldOn25,
-          PercentEquity AS percentToEquity,
-          Category,
-          NetChange     AS netChange,
-          FundGroup     AS fundGroup,
-          StartPosition AS startPosition,
-          EndPosition   AS endPosition
-        FROM Investors
-        ORDER BY Name;
-      `);
-      res.json(rows);
-    } else {
-      const r = await pool.request().query(`
-        SELECT
-          Name,
-          Bought        AS boughtOn18,
-          Sold          AS soldOn25,
-          PercentEquity AS percentToEquity,
-          Category,
-          NetChange     AS netChange,
-          FundGroup     AS fundGroup,
-          StartPosition AS startPosition,
-          EndPosition   AS endPosition
-        FROM dbo.Investors
-        ORDER BY Name;
-      `);
-      res.json(r.recordset);
-    }
+    const result = await pool.request().query(`
+      SELECT
+        Name,
+        Bought        AS boughtOn18,
+        Sold          AS soldOn25,
+        PercentEquity AS percentToEquity,
+        Category,
+        NetChange     AS netChange,
+        FundGroup     AS fundGroup,
+        StartPosition AS startPosition,
+        EndPosition   AS endPosition
+      FROM dbo.Investors
+      ORDER BY Name;
+    `);
+    res.json(result.recordset);
   } catch (e) {
     console.error("GET /api/investors error:", e);
     res.status(500).json({ error: e.message });
@@ -452,7 +332,7 @@ app.get("/api/investors", async (_, res) => {
 /* ------------------------------------------------------------------ */
 app.post("/api/monthly", async (req, res) => {
   const rows = req.body;
-  if (!Array.isArray(rows) || rows.length === 0) {
+  if (!Array.isArray(rows) || !rows.length) {
     return res.status(400).json({ error: "Non-empty array expected" });
   }
   const asOf = new Date(rows[0].date);
@@ -461,44 +341,20 @@ app.post("/api/monthly", async (req, res) => {
   }
 
   try {
-    if (DB_TYPE === "mysql") {
-      // delete existing
-      await pool.execute(`DELETE FROM MonthlyRecords WHERE AsOfDate = ?`, [
-        asOf,
-      ]);
-      // insert all via single multi-row
-      const vals = rows.map((r) => [
-        asOf,
-        r.name,
-        r.category ?? null,
-        r.shares,
-      ]);
-      await pool.query(
-        `INSERT INTO MonthlyRecords (AsOfDate,Name,Category,Shares)
-         VALUES ?
-        `,
-        [vals]
-      );
-      res.json({ success: true, inserted: rows.length });
-    } else {
-      await pool
-        .request()
-        .input("d", sql.Date, asOf)
-        .query("DELETE FROM dbo.MonthlyRecords WHERE AsOfDate = @d");
+    await pool.request()
+      .input("d", mssql.Date, asOf)
+      .query("DELETE FROM dbo.MonthlyRecords WHERE AsOfDate = @d");
 
-      const tvp = new sql.Table("MonthlyRecords");
-      tvp.columns.add("AsOfDate", sql.Date, { nullable: false });
-      tvp.columns.add("Name", sql.NVarChar(255), { nullable: false });
-      tvp.columns.add("Category", sql.NVarChar(100), { nullable: true });
-      tvp.columns.add("Shares", sql.Float, { nullable: false });
+    const tvp = new mssql.Table("MonthlyRecords");
+    tvp.columns.add("AsOfDate", mssql.Date, { nullable: false });
+    tvp.columns.add("Name", mssql.NVarChar(255), { nullable: false });
+    tvp.columns.add("Category", mssql.NVarChar(100), { nullable: true });
+    tvp.columns.add("Shares", mssql.Float, { nullable: false });
 
-      rows.forEach((r) =>
-        tvp.rows.add(asOf, r.name, r.category ?? null, r.shares)
-      );
+    rows.forEach(r => tvp.rows.add(asOf, r.name, r.category ?? null, r.shares));
 
-      await pool.request().bulk(tvp);
-      res.json({ success: true, inserted: rows.length });
-    }
+    await pool.request().bulk(tvp);
+    res.json({ success: true, inserted: rows.length });
   } catch (e) {
     console.error("POST /api/monthly error:", e);
     res.status(500).json({ error: e.message });
@@ -507,25 +363,14 @@ app.post("/api/monthly", async (req, res) => {
 
 app.get("/api/monthly", async (_, res) => {
   try {
-    let data;
-    if (DB_TYPE === "mysql") {
-      const [rows] = await pool.execute(`
-        SELECT AsOfDate, Name, Category, Shares
-        FROM MonthlyRecords
-        ORDER BY AsOfDate, Name;
-      `);
-      data = rows;
-    } else {
-      const r = await pool.request().query(`
-        SELECT AsOfDate, Name, Category, Shares
-        FROM dbo.MonthlyRecords
-        ORDER BY AsOfDate, Name;
-      `);
-      data = r.recordset;
-    }
-
+    const result = await pool.request().query(`
+      SELECT AsOfDate, Name, Category, Shares
+      FROM dbo.MonthlyRecords
+      ORDER BY AsOfDate, Name;
+    `);
+    const data = result.recordset;
     const map = Object.create(null);
-    data.forEach((row) => {
+    data.forEach(row => {
       const key = row.Name;
       if (!map[key]) {
         map[key] = {
@@ -533,17 +378,12 @@ app.get("/api/monthly", async (_, res) => {
           category: row.Category,
           description: "",
           fundGroup: getFundGroup(key),
-          monthlyShares: {},
+          monthlyShares: {}
         };
       }
-      // ensure ISO date string
-      const d =
-        row.AsOfDate instanceof Date
-          ? row.AsOfDate.toISOString().slice(0, 10)
-          : row.AsOfDate;
+      const d = row.AsOfDate.toISOString().slice(0, 10);
       map[key].monthlyShares[d] = row.Shares;
     });
-
     res.json(Object.values(map));
   } catch (e) {
     console.error("GET /api/monthly error:", e);
@@ -566,15 +406,9 @@ app.use((req, res, next) => {
 /* HTTPS Boot                                                         */
 /* ------------------------------------------------------------------ */
 const httpsOptions = {
-  key: fs.readFileSync(path.join(__dirname, "certs", "mydomain.key"), "utf8"),
-  cert: fs.readFileSync(
-    path.join(__dirname, "certs", "d466aacf3db3f299.crt"),
-    "utf8"
-  ),
-  ca: fs.readFileSync(
-    path.join(__dirname, "certs", "gd_bundle-g2-g1.crt"),
-    "utf8"
-  ),
+  key: fs.readFileSync(path.join(__dirname, "certs/mydomain.key"), "utf8"),
+  cert: fs.readFileSync(path.join(__dirname, "certs/d466aacf3db3f299.crt"), "utf8"),
+  ca: fs.readFileSync(path.join(__dirname, "certs/gd_bundle-g2-g1.crt"), "utf8"),
 };
 
 const PORT = Number(process.env.PORT) || 50443;
