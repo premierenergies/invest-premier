@@ -50,7 +50,7 @@ const Login: React.FC = () => {
       if (!res.ok) {
         setError(data.message || "Invalid OTP");
       } else {
-        navigate("/dashboard");
+        navigate("/"); // Redirect to dashboard on success
       }
     } catch (err: any) {
       setError(err.message);

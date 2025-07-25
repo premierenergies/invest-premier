@@ -1,5 +1,4 @@
-// src/components/Dashboard.tsx
-import { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import axios from "axios";
 import {
   filterInvestors,
@@ -33,32 +32,19 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 /* ------------------------------------------------------------------ */
 /* Base-URL helper                                                    */
 /* ------------------------------------------------------------------ */
-
-/**
- * 1.  If VITE_API_URL is provided            → use it
- * 2.  Else (production build)                → window.location.origin
- * 3.  Else (Vite dev server - localhost)     → http://localhost:5000
- */
 function apiBase(): string {
   const envUrl = import.meta.env.VITE_API_URL;
   if (envUrl) return envUrl.endsWith("/") ? envUrl.slice(0, -1) : envUrl;
-
-  // `import.meta.env.DEV` is true only under `npm run dev`
   if (import.meta.env.DEV) return "http://localhost:5000";
-  return window.location.origin; // production — same origin
+  return window.location.origin;
 }
 const API = `${apiBase()}/api`;
-
-/* ------------------------------------------------------------------ */
-/* Helpers                                                            */
-/* ------------------------------------------------------------------ */
 
 function fundGroupOf(name: string): string {
   const w = name.trim().split(" ").filter(Boolean);
@@ -68,7 +54,6 @@ function groupInvestorsByFund(
   data: MonthlyInvestorData[]
 ): MonthlyInvestorData[] {
   const map = new Map<string, MonthlyInvestorData>();
-
   for (const inv of data) {
     const fg = inv.fundGroup || fundGroupOf(inv.name);
     if (!map.has(fg)) {
@@ -83,7 +68,6 @@ function groupInvestorsByFund(
     }
     const grp = map.get(fg)!;
     grp.individualInvestors!.push(inv);
-
     for (const m in inv.monthlyShares) {
       grp.monthlyShares[m] = (grp.monthlyShares[m] || 0) + inv.monthlyShares[m];
     }
@@ -91,41 +75,35 @@ function groupInvestorsByFund(
   return Array.from(map.values());
 }
 
-/* ------------------------------------------------------------------ */
-/* Component                                                          */
-/* ------------------------------------------------------------------ */
-
 export default function Dashboard() {
-  /* ----------------------------- state ---------------------------- */
   const [monthlyData, setMonthlyData] = useState<MonthlyInvestorData[]>([]);
   const [isGrouped, setIsGrouped] = useState(true);
 
-  /* --------------------------- fetch ------------------------------ */
   const load = () =>
     axios
       .get<MonthlyInvestorData[]>(`${API}/monthly`)
       .then((r) => setMonthlyData(r.data))
       .catch((e) => console.error("Error fetching monthly:", e));
-
   useEffect(load, []);
 
-  /* ---------------------- derived values -------------------------- */
   const displayData = useMemo(
     () => (isGrouped ? groupInvestorsByFund(monthlyData) : monthlyData),
     [monthlyData, isGrouped]
   );
 
-  const availableMonths = useMemo(() => {
-    return Array.from(
-      new Set(displayData.flatMap((i) => Object.keys(i.monthlyShares)))
-    ).sort();
-  }, [displayData]);
+  const availableMonths = useMemo(
+    () =>
+      Array.from(
+        new Set(displayData.flatMap((i) => Object.keys(i.monthlyShares)))
+      ).sort(),
+    [displayData]
+  );
 
-  const categories = useMemo(() => {
-    return Array.from(new Set(displayData.map((i) => i.category)));
-  }, [displayData]);
+  const categories = useMemo(
+    () => Array.from(new Set(displayData.map((i) => i.category))),
+    [displayData]
+  );
 
-  /* ---------------- legacy analytics conversion ------------------ */
   const legacyInvestors: Investor[] = displayData.map((inv) => {
     const ms = Object.keys(inv.monthlyShares).sort();
     const start = inv.monthlyShares[ms[0]] || 0;
@@ -146,7 +124,6 @@ export default function Dashboard() {
   const legacySummary = generateAnalyticsSummary(legacyInvestors);
   const legacyComparisons = analyzeInvestorBehavior(legacyInvestors);
 
-  /* ------------------------------ UI ----------------------------- */
   if (displayData.length === 0) {
     return (
       <div className="space-y-8">
@@ -163,8 +140,10 @@ export default function Dashboard() {
               Excel columns: NAME, SHARES AS ON {"{DATE}"}, CATEGORY
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <MonthlyFileUpload onDataLoaded={load} />
+          <CardContent className="flex justify-center">
+            <div className="w-full max-w-xs">
+              <MonthlyFileUpload onDataLoaded={load} />
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -173,8 +152,8 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8">
-      {/* header */}
-      <div className="flex items-center justify-between">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold">Investor Analytics Dashboard</h1>
           <p className="text-muted-foreground">
@@ -183,7 +162,7 @@ export default function Dashboard() {
             {isGrouped ? "/fund groups" : ""})
           </p>
         </div>
-        <div className="flex items-center space-x-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
           <div className="flex items-center space-x-2">
             <Switch
               id="group-investors"
@@ -192,19 +171,20 @@ export default function Dashboard() {
             />
             <Label htmlFor="group-investors">Group by fund</Label>
           </div>
-          <MonthlyFileUpload onDataLoaded={load} />
+          <div className="w-full sm:w-auto">
+            <MonthlyFileUpload onDataLoaded={load} />
+          </div>
         </div>
       </div>
 
       {/* tabs */}
       <Tabs defaultValue="trends">
-        <TabsList>
+        <TabsList className="overflow-x-auto whitespace-nowrap">
           <TabsTrigger value="trends">Monthly Trends</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
           <TabsTrigger value="table">Data Table</TabsTrigger>
         </TabsList>
 
-        {/* trends */}
         <TabsContent value="trends">
           <MonthlyTrendChart
             data={displayData}
@@ -213,7 +193,6 @@ export default function Dashboard() {
           />
         </TabsContent>
 
-        {/* analytics */}
         <TabsContent value="analytics" className="space-y-6">
           {availableMonths.length < 2 ? (
             <Card>
@@ -225,7 +204,6 @@ export default function Dashboard() {
             <>
               <AnalyticsSummary summary={legacySummary} />
               <div className="grid gap-4 lg:grid-cols-2">
-                {/* <InvestorSentimentChart investors={legacyInvestors} /> */}
                 <div className="col-span-full w-full">
                   <TopMoversChart
                     data={displayData}
@@ -235,19 +213,11 @@ export default function Dashboard() {
                 </div>
               </div>
               {legacyComparisons.length > 0 && (
-                <div className="grid gap-4 lg:grid-cols-2">
-                  {/* <BehaviorAnalysisChart comparisons={legacyComparisons} /> */}
-                  {/* <FundGroupChart comparisons={legacyComparisons} /> */}
-                </div>
+                <div className="grid gap-4 lg:grid-cols-2" />
               )}
               <div className="grid gap-4 lg:grid-cols-3">
-                {/* <NetPositionChart investors={legacyInvestors} /> */}
                 <CategoryDistribution investors={legacyInvestors} />
-                {/* <VolumeAnalysisChart investors={legacyInvestors} /> */}
               </div>
-              {/*<TrendAnalysis investors={legacyInvestors} />
-              <InvestorTrendChart investors={legacyInvestors} />*/}
-              {/* Shares‑by‑Category timeline chart, at the bottom */}
               <CategoryTimelineChart
                 data={displayData}
                 availableMonths={availableMonths}
@@ -257,13 +227,14 @@ export default function Dashboard() {
           )}
         </TabsContent>
 
-        {/* table */}
         <TabsContent value="table">
-          <MonthlyDataTable
-            data={displayData}
-            availableMonths={availableMonths}
-            categories={categories}
-          />
+          <div className="overflow-auto">
+            <MonthlyDataTable
+              data={displayData}
+              availableMonths={availableMonths}
+              categories={categories}
+            />
+          </div>
         </TabsContent>
       </Tabs>
     </div>

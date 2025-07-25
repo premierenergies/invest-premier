@@ -26,11 +26,12 @@ const Index: React.FC = () => {
     } catch (err) {
       console.error("Logout failed", err);
     } finally {
-      navigate("/");
+      // full-page redirect to reset the SPA and land on /login
+      window.location.href = "/login";
     }
-  }, [navigate]);
+  }, []);
 
-  // Auto‑logout after 5 minutes inactivity
+  // Auto-logout after 5 minutes inactivity
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
 
@@ -39,7 +40,12 @@ const Index: React.FC = () => {
       timer = setTimeout(logout, 5 * 60 * 1000);
     };
 
-    const events = ["mousemove", "mousedown", "keydown", "touchstart"];
+    const events: (keyof WindowEventMap)[] = [
+      "mousemove",
+      "mousedown",
+      "keydown",
+      "touchstart",
+    ];
     events.forEach((ev) => window.addEventListener(ev, resetTimer));
     resetTimer();
 
@@ -50,26 +56,31 @@ const Index: React.FC = () => {
   }, [logout]);
 
   return (
-    <div className="flex min-h-screen bg-muted/30">
+    <div className="flex flex-col min-h-screen bg-muted/30">
       <Toaster position="top-right" />
 
-      <div className="flex-1 space-y-4 p-4 md:p-8">
+      <div className="flex-1 flex flex-col space-y-4 p-4 md:p-8">
         {/* Logout button */}
-        <div className="flex justify-end">
+        <div className="w-full md:flex md:justify-end">
           <button
             onClick={logout}
-            className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition-colors"
+            className="w-full md:w-auto bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition-colors"
           >
             Logout
           </button>
         </div>
 
         {/* Main dashboard */}
-        <Dashboard />
+        <div className="flex-1">
+          <Dashboard />
+        </div>
 
         {/* Footer */}
         <div className="mt-8 text-center text-sm text-muted-foreground">
-          <p>© 2025 Investor Analytics Dashboard. All rights reserved.</p>
+          <p>
+            © {new Date().getFullYear()} Investor Analytics Dashboard. All
+            rights reserved.
+          </p>
         </div>
       </div>
     </div>

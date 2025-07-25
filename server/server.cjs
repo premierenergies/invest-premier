@@ -304,6 +304,13 @@ app.post("/api/verify-otp", async (req, res) => {
   }
 });
 
+// ── LOGOUT ───────────────────────────────────────────────────────────────────
+app.post("/api/logout", (req, res) => {
+  // simply clear any auth cookies/sessions you’re using (if any)
+  // for now we’ll just return success
+  res.json({ message: "Logged out" });
+});
+
 /* ------------------------------------------------------------------ */
 /* API – Investors                                                     */
 /* ------------------------------------------------------------------ */

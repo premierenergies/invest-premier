@@ -330,12 +330,12 @@ export default function MonthlyDataTable({ data, availableMonths, categories }: 
   return (
     <div className="space-y-4">
       {/* Legend */}
-      <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
+      <div className="flex flex-col md:flex-row items-start md:items-center gap-4 p-4 bg-gray-50 rounded-lg">
         <span className="text-sm font-medium">Legend:</span>
         <Badge className="bg-green-100 text-green-800">Green: Increased shares</Badge>
         <Badge className="bg-red-100 text-red-800">Red: Decreased shares</Badge>
         <Badge className="bg-blue-100 text-blue-800">Blue: Same/Initial month</Badge>
-        <span className="text-xs text-muted-foreground">
+        <span className="text-xs text-muted-foreground mt-2 md:mt-0">
           Intensity: Light (≤50k) → Dark ({'>'}500k)
         </span>
       </div>
