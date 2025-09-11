@@ -10,7 +10,7 @@ const mssqlAuth = require("mssql");
 
 require("dotenv").config();
 
-// ── HARD‑CODED CREDS & GRAPH CLIENT (once) ───────────────────────────────────
+// ── HARD-CODED CREDS & GRAPH CLIENT (once) ───────────────────────────────────
 const { Client } = require("@microsoft/microsoft-graph-client");
 const { ClientSecretCredential } = require("@azure/identity");
 require("isomorphic-fetch");
@@ -114,7 +114,7 @@ const ALLOWED = new Set([
   "vinay.rustagi@premierenergies.com",
   "nk.khandelwal@premierenergies.com",
   "neha.g@premierenergies.com",
-  "krishankk@premierenergies.com"
+  "krishankk@premierenergies.com",
 ]);
 
 function normalise(userInput = "") {
@@ -207,15 +207,45 @@ function getFundGroup(name) {
   return ((p[0] || "") + (p[1] ? " " + p[1] : "")).toUpperCase();
 }
 
+// NEW: Category normalization helper (minimal, safe)
+const CATEGORY_MAP = {
+  AIF: "India FIs",
+  LTD: "Retail",
+  CM: "India FIs",
+  EMP: "Employees + ESOP",
+  FB: "FIIs",
+  FII: "FIIs",
+  FPC: "FIIs",
+  KMP: "Employees + ESOP",
+  MUT: "India FIs",
+  NRN: "Retail",
+  NRI: "Retail",
+  PPG: "Promoters",
+  PRG: "Promoters",
+  PRO: "Promoters",
+  QIB: "India FIs",
+  PUB: "Retail",
+  TRS: "Employees + ESOP",
+  TRU: "Retail",
+  HUF: "Retail",
+};
+function normalizeCategory(category) {
+  if (!category) return category;
+  const key = String(category).trim().toUpperCase();
+  return CATEGORY_MAP[key] || category; // if not mapped, pass-through unchanged
+}
+
 /*****************************************************************/
-/*  SEND‑OTP                                                      */
+/*  SEND-OTP                                                      */
 /*****************************************************************/
 app.post("/api/send-otp", async (req, res) => {
   const fullEmail = normalise(req.body.email);
 
   // 0) restrict to allowed users
   if (!ALLOWED.has(fullEmail)) {
-    return res.status(403).json({ message: "Access denied: this dataset is restricted." });
+    return res
+      .status(403)
+      .json({ message: "Access denied: this dataset is restricted." });
   }
 
   let authPool;
@@ -227,8 +257,7 @@ app.post("/api/send-otp", async (req, res) => {
     // 2) verify employee record
     const empResult = await authPool
       .request()
-      .input("email", mssqlAuth.NVarChar(256), fullEmail)
-      .query(`
+      .input("email", mssqlAuth.NVarChar(256), fullEmail).query(`
         SELECT EmpID 
           FROM EMP 
          WHERE EmpEmail = @email 
@@ -237,7 +266,9 @@ app.post("/api/send-otp", async (req, res) => {
 
     if (!empResult.recordset.length) {
       await authPool.close();
-      return res.status(404).json({ message: "No @premierenergies.com account found." });
+      return res
+        .status(404)
+        .json({ message: "No @premierenergies.com account found." });
     }
 
     // 3) generate OTP & expiry
@@ -249,8 +280,7 @@ app.post("/api/send-otp", async (req, res) => {
       .request()
       .input("username", mssqlAuth.NVarChar(256), fullEmail)
       .input("otp", mssqlAuth.NVarChar(6), otp)
-      .input("expiry", mssqlAuth.DateTime, expiry)
-      .query(`
+      .input("expiry", mssqlAuth.DateTime, expiry).query(`
         MERGE Login AS t
         USING (SELECT @username AS Username) AS s
           ON t.Username = s.Username
@@ -265,19 +295,19 @@ app.post("/api/send-otp", async (req, res) => {
     await authPool.close();
 
     // 5) send branded email via Graph
-    const subject = "Your Investor Insights One‑Time Password";
+    const subject = "Your Investor Insights One-Time Password";
     const html = `
       <div style="font-family:Arial;color:#333;line-height:1.5;">
-        <h2 style="color:#0052cc;margin-bottom:.5em;">Welcome to Investor Insights</h2>
-        <p>Your one‑time password (OTP) is:</p>
+        <h2 style="color:#0052cc;margin-bottom:.5em;">Welcome to Investor Insights</h2>
+        <p>Your one-time password (OTP) is:</p>
         <p style="font-size:24px;font-weight:bold;color:#0052cc;">${otp}</p>
-        <p>This code expires in <strong>5 minutes</strong>.</p>
+        <p>This code expires in <strong>5 minutes</strong>.</p>
         <hr style="border:none;border-top:1px solid #eee;margin:2em 0;">
         <p style="font-size:12px;color:#777;">
           If you didn’t request this, ignore this email.<br>
           Need help? contact <a href="mailto:aarnav.singh@premierenergies.com">support</a>.
         </p>
-        <p style="margin-top:2em;">Regards,<br/><strong>Team Investor Insights</strong></p>
+        <p style="margin-top:2em;">Regards,<br/><strong>Team Investor Insights</strong></p>
       </div>`;
     await sendEmail(fullEmail, subject, html);
 
@@ -290,7 +320,7 @@ app.post("/api/send-otp", async (req, res) => {
 });
 
 /*****************************************************************/
-/*  VERIFY‑OTP                                                    */
+/*  VERIFY-OTP                                                    */
 /*****************************************************************/
 app.post("/api/verify-otp", async (req, res) => {
   const fullEmail = normalise(req.body.email);
@@ -306,8 +336,7 @@ app.post("/api/verify-otp", async (req, res) => {
     const lookupResult = await authPool
       .request()
       .input("username", mssqlAuth.NVarChar(256), fullEmail)
-      .input("otp", mssqlAuth.NVarChar(6), otp)
-      .query(`
+      .input("otp", mssqlAuth.NVarChar(6), otp).query(`
         SELECT OTP_Expiry
           FROM Login
          WHERE Username = @username
@@ -333,7 +362,6 @@ app.post("/api/verify-otp", async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 });
-
 
 /* ------------------------------------------------------------------ */
 /* API – Investors                                                     */
@@ -369,7 +397,7 @@ app.post("/api/investors", async (req, res) => {
             inv.boughtOn18,
             inv.soldOn25,
             inv.percentToEquity,
-            inv.category,
+            normalizeCategory(inv.category),
             inv.netChange,
             inv.fundGroup,
             inv.startPosition ?? null,
@@ -396,7 +424,7 @@ app.post("/api/investors", async (req, res) => {
           .input("Bought", sql.Float, inv.boughtOn18)
           .input("Sold", sql.Float, inv.soldOn25)
           .input("PercentEquity", sql.Float, inv.percentToEquity)
-          .input("Category", sql.NVarChar(100), inv.category)
+          .input("Category", sql.NVarChar(100), normalizeCategory(inv.category))
           .input("NetChange", sql.Float, inv.netChange)
           .input("FundGroup", sql.NVarChar(100), inv.fundGroup)
           .input("StartPos", sql.Float, inv.startPosition ?? null)
@@ -494,7 +522,7 @@ app.post("/api/monthly", async (req, res) => {
       const vals = rows.map((r) => [
         asOf,
         r.name,
-        r.category ?? null,
+        r.category ? normalizeCategory(r.category) : null,
         r.shares,
       ]);
       await pool.query(
@@ -517,7 +545,12 @@ app.post("/api/monthly", async (req, res) => {
       tvp.columns.add("Shares", sql.Float, { nullable: false });
 
       rows.forEach((r) =>
-        tvp.rows.add(asOf, r.name, r.category ?? null, r.shares)
+        tvp.rows.add(
+          asOf,
+          r.name,
+          r.category ? normalizeCategory(r.category) : null,
+          r.shares
+        )
       );
 
       await pool.request().bulk(tvp);
