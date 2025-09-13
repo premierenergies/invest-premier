@@ -34,12 +34,9 @@ interface MonthlyDataTableProps {
 function FundBreakdownDialog({ investor }: { investor: MonthlyInvestorData }) {
   const [open, setOpen] = useState(false);
 
-  if (!investor.individualInvestors || investor.individualInvestors.length <= 1)
-    return null;
-
   const headerMonthKeys = useMemo(() => {
     const s = new Set<string>();
-    for (const ind of investor.individualInvestors) {
+    for (const ind of investor.individualInvestors ?? []) {
       Object.keys(ind.monthlyShares || {}).forEach((k) => s.add(k));
     }
     return Array.from(s).sort();
@@ -49,6 +46,13 @@ function FundBreakdownDialog({ investor }: { investor: MonthlyInvestorData }) {
     () => getMonthDisplayLabels(headerMonthKeys),
     [headerMonthKeys]
   );
+
+  if (
+    !investor.individualInvestors ||
+    investor.individualInvestors.length <= 1
+  ) {
+    return null;
+  }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>

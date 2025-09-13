@@ -176,8 +176,9 @@ export default function Dashboard() {
             <Switch
               id="group-investors"
               checked={isGrouped}
-              onCheckedChange={setIsGrouped}
+              onCheckedChange={(checked) => setIsGrouped(Boolean(checked))}
             />
+
             <Label htmlFor="group-investors">Group by fund</Label>
           </div>
           <div className="w-full sm:w-auto">
@@ -205,6 +206,7 @@ export default function Dashboard() {
         <TabsContent value="table" className="min-h-0">
           <div className="overflow-visible min-h-0">
             <MonthlyDataTable
+              key={isGrouped ? "grouped" : "ungrouped"}
               data={displayData}
               availableMonths={availableMonths}
               categories={categories}
