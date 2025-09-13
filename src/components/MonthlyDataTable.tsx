@@ -37,8 +37,17 @@ function FundBreakdownDialog({ investor }: { investor: MonthlyInvestorData }) {
   if (!investor.individualInvestors || investor.individualInvestors.length <= 1)
     return null;
 
-  const displayLabels = getMonthDisplayLabels(
-    Object.keys(investor.individualInvestors[0].monthlyShares).sort()
+  const headerMonthKeys = useMemo(() => {
+    const s = new Set<string>();
+    for (const ind of investor.individualInvestors) {
+      Object.keys(ind.monthlyShares || {}).forEach((k) => s.add(k));
+    }
+    return Array.from(s).sort();
+  }, [investor.individualInvestors]);
+
+  const displayLabels = useMemo(
+    () => getMonthDisplayLabels(headerMonthKeys),
+    [headerMonthKeys]
   );
 
   return (
@@ -54,7 +63,7 @@ function FundBreakdownDialog({ investor }: { investor: MonthlyInvestorData }) {
           <Eye className="h-3 w-3" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className="max-w-6xl max-h-[80vh] overflow-visible font-sans">
         <DialogHeader>
           <DialogTitle>{investor.name} — Individual Investors</DialogTitle>
           <DialogDescription>
@@ -63,23 +72,21 @@ function FundBreakdownDialog({ investor }: { investor: MonthlyInvestorData }) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full border-separate border-spacing-0 text-sm">
+        <div className="mt-4 max-h-[60vh] overflow-auto">
+          <table className="w-full min-w-max table-fixed border-separate border-spacing-0 text-sm font-sans">
             <thead>
               <tr>
-                <th className="sticky top-0 z-30 bg-white text-left px-4 py-2 border border-gray-200">
+                <th className="sticky top-0 z-50 bg-white text-left px-4 py-2 border border-gray-200">
                   Investor Name
                 </th>
-                <th className="sticky top-0 z-30 bg-white text-left px-4 py-2 border border-gray-200">
+                <th className="sticky top-0 z-50 bg-white text-left px-4 py-2 border border-gray-200">
                   Category
                 </th>
-                <th className="sticky top-0 z-30 bg-white text-left px-4 py-2 border border-gray-200">
-                  Description
-                </th>
-                {displayLabels.map((label, index) => (
+
+                {displayLabels.map((label, idx) => (
                   <th
-                    key={index}
-                    className="sticky top-0 z-30 bg-white text-right px-4 py-2 border border-gray-200"
+                    key={headerMonthKeys[idx]}
+                    className="sticky top-0 z-50 bg-white text-right px-4 py-2 border border-gray-200"
                   >
                     {label}
                   </th>
@@ -88,7 +95,6 @@ function FundBreakdownDialog({ investor }: { investor: MonthlyInvestorData }) {
             </thead>
             <tbody>
               {investor.individualInvestors.map((individual, idx) => {
-                const monthKeys = Object.keys(individual.monthlyShares).sort();
                 return (
                   <tr key={idx}>
                     <td className="px-4 py-2 border border-gray-200 font-medium">
@@ -97,10 +103,8 @@ function FundBreakdownDialog({ investor }: { investor: MonthlyInvestorData }) {
                     <td className="px-4 py-2 border border-gray-200">
                       <Badge variant="outline">{individual.category}</Badge>
                     </td>
-                    <td className="px-4 py-2 border border-gray-200">
-                      {individual.description}
-                    </td>
-                    {monthKeys.map((month) => (
+
+                    {headerMonthKeys.map((month) => (
                       <td
                         key={month}
                         className="px-4 py-2 border border-gray-200 text-right"
