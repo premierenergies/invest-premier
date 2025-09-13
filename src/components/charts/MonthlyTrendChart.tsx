@@ -1,23 +1,35 @@
-import { useEffect, useRef, useState } from 'react';
-import { 
-  Chart as ChartJS, 
-  CategoryScale, 
-  LinearScale, 
-  PointElement, 
-  LineElement, 
-  Title, 
-  Tooltip, 
-  Legend, 
-  ChartData, 
+import { useEffect, useRef, useState } from "react";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  ChartData,
   ChartOptions,
-  LineController
-} from 'chart.js';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+  LineController,
+} from "chart.js";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { MonthlyInvestorData } from '@/types';
-import { getMonthDisplayLabels } from '@/utils/csvUtils';
-import { Loader2 } from 'lucide-react';
+import { MonthlyInvestorData } from "@/types";
+import { getMonthDisplayLabels } from "@/utils/csvUtils";
+import { Loader2 } from "lucide-react";
 
 ChartJS.register(
   CategoryScale,
@@ -39,12 +51,20 @@ interface MonthlyTrendChartProps {
 export default function MonthlyTrendChart({
   data,
   availableMonths,
-  categories
+  categories,
 }: MonthlyTrendChartProps) {
   const chartRef = useRef<HTMLCanvasElement | null>(null);
   const chartInstance = useRef<ChartJS | null>(null);
 
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  // Auto-select "India FIs" on mount if it exists
+  useEffect(() => {
+    if (categories?.includes("India FIs") && selectedCategory === "all") {
+      setSelectedCategory("India FIs");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categories]);
+
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
@@ -65,103 +85,94 @@ export default function MonthlyTrendChart({
       let filteredData = data;
 
       if (selectedCategory !== "all") {
-        filteredData = filteredData.filter(inv => inv.category === selectedCategory);
+        filteredData = filteredData.filter(
+          (inv) => inv.category === selectedCategory
+        );
       }
 
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase().trim();
-        filteredData = filteredData.filter(inv =>
+        filteredData = filteredData.filter((inv) =>
           inv.name.toLowerCase().includes(query)
         );
       }
 
       // 2) THRESHOLD FILTER: ONLY THOSE WHO EVER HAD ≥ 20,000 SHARES
       const threshold = 20000;
-      filteredData = filteredData.filter(inv => {
+      filteredData = filteredData.filter((inv) => {
         // collect all share values (or zero if missing)
-        const allShares = availableMonths.map(m => inv.monthlyShares[m] || 0);
+        const allShares = availableMonths.map((m) => inv.monthlyShares[m] || 0);
         const maxShares = Math.max(...allShares);
         return maxShares >= threshold;
       });
 
-      // 3) GET DISPLAY LABELS
+      // 3) OPENING VIEW LOGIC
+      const lastMonth = availableMonths[availableMonths.length - 1];
+      const isDefaultIndiaFIsTop =
+        selectedCategory === "India FIs" && !searchQuery.trim();
+
+      // When showing “India FIs Top 10 as of last upload date”, we only want the last month label.
+      // Even in the default India FIs Top 10 view, show ALL uploaded months on X-axis.
       const displayLabels = getMonthDisplayLabels(availableMonths);
 
       // 4) BUILD DATASETS
-      let datasets: ChartData<'line', number[], string>['datasets'] = [];
+      let datasets: ChartData<"line", number[], string>["datasets"] = [];
 
-      const noFiltersApplied =
-        selectedCategory === "all" && !searchQuery.trim();
+      if (isDefaultIndiaFIsTop) {
+        // ---- REQUESTED DEFAULT: India FIs Top 10 by shares (last month only) ----
+        const withValues = filteredData
+          .map((inv) => ({ inv, val: inv.monthlyShares[lastMonth] || 0 }))
+          .sort((a, b) => b.val - a.val)
+          .slice(0, 10);
 
-      if (noFiltersApplied) {
-        // ---- DEFAULT AGGREGATED VIEW: Top 5 Buyers vs. Top 5 Sellers ----
-
-        // Compute net change for each investor
-        const firstMonth = availableMonths[0];
-        const lastMonth = availableMonths[availableMonths.length - 1];
-
-        const netChanges = filteredData.map(inv => {
-          const start = inv.monthlyShares[firstMonth] || 0;
-          const end = inv.monthlyShares[lastMonth] || 0;
-          return { inv, netChange: end - start };
-        });
-
-        // Sort descending for buyers, ascending for sellers
-        const sortedDesc = [...netChanges].sort((a, b) => b.netChange - a.netChange);
-        const sortedAsc  = [...netChanges].sort((a, b) => a.netChange - b.netChange);
-
-        const topBuyers  = sortedDesc.slice(0, 5).map(x => x.inv);
-        const topSellers = sortedAsc.slice(0, 5).map(x => x.inv);
-
-        // Aggregate each group’s monthly totals
-        const buyerValues = availableMonths.map(month =>
-          topBuyers.reduce((sum, inv) => sum + (inv.monthlyShares[month] || 0), 0)
-        );
-        const sellerValues = availableMonths.map(month =>
-          topSellers.reduce((sum, inv) => sum + (inv.monthlyShares[month] || 0), 0)
-        );
-
-        datasets = [
-          {
-            label: 'Top 5 Buyers',
-            data: buyerValues,
-            borderColor: 'rgba(59, 130, 246, 1)',
-            backgroundColor: 'rgba(59, 130, 246, 0.1)',
-            borderWidth: 2,
-            tension: 0.4,
-            pointRadius: 4,
-            pointHoverRadius: 6,
-          },
-          {
-            label: 'Top 5 Sellers',
-            data: sellerValues,
-            borderColor: 'rgba(239, 68, 68, 1)',
-            backgroundColor: 'rgba(239, 68, 68, 0.1)',
-            borderWidth: 2,
-            tension: 0.4,
-            pointRadius: 4,
-            pointHoverRadius: 6,
-          }
-        ];
-      } else {
-        // ---- FALLBACK: UP TO 10 INDIVIDUAL LINES (AS BEFORE) ----
         const palette = [
-          'rgba(59, 130, 246, 1)',   // Blue
-          'rgba(16, 185, 129, 1)',   // Green
-          'rgba(245, 158, 11, 1)',   // Amber
-          'rgba(239, 68, 68, 1)',    // Red
-          'rgba(168, 85, 247, 1)',   // Purple
-          'rgba(236, 72, 153, 1)',   // Pink
-          'rgba(6, 182, 212, 1)',    // Cyan
-          'rgba(34, 197, 94, 1)',    // Emerald
-          'rgba(251, 191, 36, 1)',   // Yellow
-          'rgba(156, 163, 175, 1)',  // Gray
+          "rgba(59, 130, 246, 1)",
+          "rgba(16, 185, 129, 1)",
+          "rgba(245, 158, 11, 1)",
+          "rgba(239, 68, 68, 1)",
+          "rgba(168, 85, 247, 1)",
+          "rgba(236, 72, 153, 1)",
+          "rgba(6, 182, 212, 1)",
+          "rgba(34, 197, 94, 1)",
+          "rgba(251, 191, 36, 1)",
+          "rgba(156, 163, 175, 1)",
+        ];
+
+        datasets = withValues.map((row, idx) => {
+          const color = palette[idx % palette.length];
+          const values = availableMonths.map(
+            (m) => row.inv.monthlyShares[m] || 0
+          );
+          return {
+            label: row.inv.name,
+            data: values, // full movement across all uploaded months
+            borderColor: color,
+            backgroundColor: color.replace("1)", "0.1)"),
+            borderWidth: 2,
+            tension: 0.4,
+            pointRadius: 4,
+            pointHoverRadius: 6,
+          };
+        });
+      } else {
+        // ---- FALLBACK: UP TO 10 INDIVIDUAL LINES OVER TIME ----
+        const palette = [
+          "rgba(59, 130, 246, 1)",
+          "rgba(16, 185, 129, 1)",
+          "rgba(245, 158, 11, 1)",
+          "rgba(239, 68, 68, 1)",
+          "rgba(168, 85, 247, 1)",
+          "rgba(236, 72, 153, 1)",
+          "rgba(6, 182, 212, 1)",
+          "rgba(34, 197, 94, 1)",
+          "rgba(251, 191, 36, 1)",
+          "rgba(156, 163, 175, 1)",
         ];
 
         datasets = filteredData.slice(0, 10).map((inv, idx) => {
           const color = palette[idx % palette.length];
-          const bg = color.replace('1)', '0.1)');
-          const values = availableMonths.map(m => inv.monthlyShares[m] || 0);
+          const bg = color.replace("1)", "0.1)");
+          const values = availableMonths.map((m) => inv.monthlyShares[m] || 0);
 
           return {
             label: inv.name,
@@ -176,45 +187,47 @@ export default function MonthlyTrendChart({
         });
       }
 
-      const chartData: ChartData<'line', number[], string> = {
+      const chartData: ChartData<"line", number[], string> = {
         labels: displayLabels,
-        datasets
+        datasets,
       };
 
-      const chartOptions: ChartOptions<'line'> = {
+      const chartOptions: ChartOptions<"line"> = {
         responsive: true,
         maintainAspectRatio: false,
         scales: {
           y: {
-            title: { display: true, text: 'Number of Shares' },
-            beginAtZero: true
+            title: { display: true, text: "Number of Shares" },
+            beginAtZero: true,
           },
           x: {
-            title: { display: true, text: 'Date' }
-          }
+            title: { display: true, text: "Date" },
+          },
         },
         plugins: {
           legend: {
-            position: 'top',
-            display: true
+            position: "top",
+            display: true,
           },
           tooltip: {
             callbacks: {
               label(ctx) {
-                return `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()} shares`;
-              }
-            }
-          }
-        }
+                return `${
+                  ctx.dataset.label
+                }: ${ctx.parsed.y.toLocaleString()} shares`;
+              },
+            },
+          },
+        },
       };
 
       // Render chart
-      const ctx = chartRef.current.getContext('2d');
+      const ctx = chartRef.current.getContext("2d");
       if (ctx) {
         chartInstance.current = new ChartJS(ctx, {
-          type: 'line',
+          type: "line",
           data: chartData,
-          options: chartOptions
+          options: chartOptions,
         });
       }
     } catch (err) {
@@ -235,9 +248,19 @@ export default function MonthlyTrendChart({
   return (
     <Card className="col-span-full">
       <CardHeader>
-        <CardTitle>Month-over-Month Trends</CardTitle>
+        <CardTitle>
+          {selectedCategory === "India FIs" && !searchQuery.trim()
+            ? `India FIs Top 10 (number of shares) — as of ${
+                getMonthDisplayLabels([
+                  availableMonths[availableMonths.length - 1],
+                ])[0]
+              }`
+            : "Month-over-Month Trends"}
+        </CardTitle>
         <CardDescription>
-          Track investor position changes across months. Shows lines for each investor/fund.
+          {selectedCategory === "India FIs" && !searchQuery.trim()
+            ? "Snapshot of top holders in the latest uploaded month."
+            : "Track investor position changes across months. Shows lines for each investor/fund."}
         </CardDescription>
 
         <div className="flex flex-wrap gap-4 items-center">
@@ -247,8 +270,10 @@ export default function MonthlyTrendChart({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Categories</SelectItem>
-              {categories.map(cat => (
-                <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+              {categories.map((cat) => (
+                <SelectItem key={cat} value={cat}>
+                  {cat}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -257,7 +282,7 @@ export default function MonthlyTrendChart({
             <Input
               placeholder="Search by investor name..."
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              onChange={(e) => setSearchQuery(e.target.value)}
             />
             {isLoading && (
               <Loader2 className="absolute right-3 top-3 h-4 w-4 animate-spin" />
@@ -282,20 +307,33 @@ export default function MonthlyTrendChart({
           <>
             {searchQuery && (
               <p className="text-sm text-muted-foreground mt-2">
-                Found {
-                  data.filter(inv =>
+                Found{" "}
+                {
+                  data.filter((inv) =>
                     inv.name.toLowerCase().includes(searchQuery.toLowerCase())
                   ).length
-                } investors matching "{searchQuery}"
+                }{" "}
+                investors matching "{searchQuery}"
               </p>
             )}
-            {data.filter(inv => {
-              if (selectedCategory !== "all" && inv.category !== selectedCategory) return false;
-              if (searchQuery.trim() && !inv.name.toLowerCase().includes(searchQuery.toLowerCase().trim())) return false;
+            {data.filter((inv) => {
+              if (
+                selectedCategory !== "all" &&
+                inv.category !== selectedCategory
+              )
+                return false;
+              if (
+                searchQuery.trim() &&
+                !inv.name
+                  .toLowerCase()
+                  .includes(searchQuery.toLowerCase().trim())
+              )
+                return false;
               return true;
             }).length > 10 && (
               <p className="text-sm text-muted-foreground mt-2">
-                Showing top 10 results. Use filters to narrow down the selection.
+                Showing top 10 results. Use filters to narrow down the
+                selection.
               </p>
             )}
           </>

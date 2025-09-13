@@ -1,13 +1,6 @@
-import { useState } from "react";
+// src/components/MonthlyDataTable.tsx
+import React, { useMemo, useState } from "react";
 import { MonthlyInvestorData } from "@/types";
-import {
-  Table,
-  TableHeader,
-  TableRow,
-  TableHead,
-  TableBody,
-  TableCell,
-} from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -17,7 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { ArrowDown, ArrowUp, Search, Eye, Users } from "lucide-react";
+import { ArrowDown, ArrowUp, Eye } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -35,15 +28,14 @@ interface MonthlyDataTableProps {
   categories: string[];
 }
 
+/* ──────────────────────────────────────────────────────────────────
+   Dialog: fund breakdown (simple table, sticky header only)
+   ────────────────────────────────────────────────────────────────── */
 function FundBreakdownDialog({ investor }: { investor: MonthlyInvestorData }) {
   const [open, setOpen] = useState(false);
 
-  if (
-    !investor.individualInvestors ||
-    investor.individualInvestors.length <= 1
-  ) {
+  if (!investor.individualInvestors || investor.individualInvestors.length <= 1)
     return null;
-  }
 
   const displayLabels = getMonthDisplayLabels(
     Object.keys(investor.individualInvestors[0].monthlyShares).sort()
@@ -52,159 +44,83 @@ function FundBreakdownDialog({ investor }: { investor: MonthlyInvestorData }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 w-6 p-0"
+          onClick={(e) => e.stopPropagation()}
+          title="View fund breakdown"
+        >
           <Eye className="h-3 w-3" />
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{investor.name} - Individual Investors</DialogTitle>
+          <DialogTitle>{investor.name} — Individual Investors</DialogTitle>
           <DialogDescription>
             Breakdown of {investor.individualInvestors.length} individual
             investors in this fund group
           </DialogDescription>
         </DialogHeader>
+
         <div className="mt-4 overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Investor Name</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Description</TableHead>
+          <table className="w-full border-separate border-spacing-0 text-sm">
+            <thead>
+              <tr>
+                <th className="sticky top-0 z-30 bg-white text-left px-4 py-2 border border-gray-200">
+                  Investor Name
+                </th>
+                <th className="sticky top-0 z-30 bg-white text-left px-4 py-2 border border-gray-200">
+                  Category
+                </th>
+                <th className="sticky top-0 z-30 bg-white text-left px-4 py-2 border border-gray-200">
+                  Description
+                </th>
                 {displayLabels.map((label, index) => (
-                  <TableHead key={index} className="text-right">
+                  <th
+                    key={index}
+                    className="sticky top-0 z-30 bg-white text-right px-4 py-2 border border-gray-200"
+                  >
                     {label}
-                  </TableHead>
+                  </th>
                 ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {investor.individualInvestors.map((individual, index) => {
+              </tr>
+            </thead>
+            <tbody>
+              {investor.individualInvestors.map((individual, idx) => {
                 const monthKeys = Object.keys(individual.monthlyShares).sort();
                 return (
-                  <TableRow key={index}>
-                    <TableCell className="font-medium">
+                  <tr key={idx}>
+                    <td className="px-4 py-2 border border-gray-200 font-medium">
                       {individual.name}
-                    </TableCell>
-                    <TableCell>
+                    </td>
+                    <td className="px-4 py-2 border border-gray-200">
                       <Badge variant="outline">{individual.category}</Badge>
-                    </TableCell>
-                    <TableCell>{individual.description}</TableCell>
+                    </td>
+                    <td className="px-4 py-2 border border-gray-200">
+                      {individual.description}
+                    </td>
                     {monthKeys.map((month) => (
-                      <TableCell key={month} className="text-right">
+                      <td
+                        key={month}
+                        className="px-4 py-2 border border-gray-200 text-right"
+                      >
                         {(
                           individual.monthlyShares[month] || 0
                         ).toLocaleString()}
-                      </TableCell>
+                      </td>
                     ))}
-                  </TableRow>
+                  </tr>
                 );
               })}
-            </TableBody>
-          </Table>
+            </tbody>
+          </table>
         </div>
       </DialogContent>
     </Dialog>
   );
 }
 
-function ManualGroupingDialog({
-  data,
-  onGroupInvestors,
-}: {
-  data: MonthlyInvestorData[];
-  onGroupInvestors: (sourceInvestor: string, targetGroup: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [selectedInvestor, setSelectedInvestor] = useState("");
-  const [targetGroup, setTargetGroup] = useState("");
-
-  const availableGroups = data
-    .filter(
-      (inv) => inv.individualInvestors && inv.individualInvestors.length > 1
-    )
-    .map((inv) => inv.name);
-
-  const individualInvestors = data.filter(
-    (inv) => !inv.individualInvestors || inv.individualInvestors.length <= 1
-  );
-
-  const handleGroup = () => {
-    if (selectedInvestor && targetGroup) {
-      onGroupInvestors(selectedInvestor, targetGroup);
-      setOpen(false);
-      setSelectedInvestor("");
-      setTargetGroup("");
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          <Users className="h-4 w-4 mr-2" />
-          Manual Grouping
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Manual Grouping</DialogTitle>
-          <DialogDescription>
-            Add an individual investor to an existing group
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div>
-            <label className="text-sm font-medium">
-              Select Investor to Group:
-            </label>
-            <Select
-              value={selectedInvestor}
-              onValueChange={setSelectedInvestor}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Choose an investor" />
-              </SelectTrigger>
-              <SelectContent>
-                {individualInvestors.map((inv) => (
-                  <SelectItem key={inv.name} value={inv.name}>
-                    {inv.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium">Select Target Group:</label>
-            <Select value={targetGroup} onValueChange={setTargetGroup}>
-              <SelectTrigger>
-                <SelectValue placeholder="Choose a group" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableGroups.map((group) => (
-                  <SelectItem key={group} value={group}>
-                    {group}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <Button
-            onClick={handleGroup}
-            disabled={!selectedInvestor || !targetGroup}
-            className="w-full"
-          >
-            Group Investor
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ---- helpers for time-range ranking (minimal, self-contained) ----
 type RankingMode = "none" | "buyers" | "sellers";
 type TimeRangeKey =
   | "30d"
@@ -214,46 +130,42 @@ type TimeRangeKey =
   | "lastQuarter"
   | "allTime";
 
+/* ──────────────────────────────────────────────────────────────────
+   Date range helpers
+   ────────────────────────────────────────────────────────────────── */
 function isoDate(d: Date): string {
   const y = d.getFullYear();
   const m = (d.getMonth() + 1).toString().padStart(2, "0");
   const day = d.getDate().toString().padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
-
 function addDays(d: Date, days: number): Date {
   const copy = new Date(d.getTime());
   copy.setDate(copy.getDate() + days);
   return copy;
 }
-
 function startOfQuarter(d: Date): Date {
   const q = Math.floor(d.getMonth() / 3);
   return new Date(d.getFullYear(), q * 3, 1);
 }
-
 function endOfQuarter(d: Date): Date {
   const q = Math.floor(d.getMonth() / 3);
-  // next quarter start minus 1 day
   const nextQStart = new Date(d.getFullYear(), q * 3 + 3, 1);
   return addDays(nextQStart, -1);
 }
-
 function previousQuarterBounds(d: Date): { start: Date; end: Date } {
   const q = Math.floor(d.getMonth() / 3);
-  const prevQMonth = q * 3 - 3; // start month of previous quarter
+  const prevQMonth = q * 3 - 3;
   const year = prevQMonth < 0 ? d.getFullYear() - 1 : d.getFullYear();
   const month = ((prevQMonth % 12) + 12) % 12;
   const start = new Date(year, month, 1);
   const end = endOfQuarter(start);
   return { start, end };
 }
-
 function findFirstKeyOnOrAfter(
   keysAsc: string[],
   targetIso: string
 ): string | undefined {
-  // keys are ISO yyyy-mm-dd; binary search unnecessary; linear is fine for monthly cadence
   return keysAsc.find((k) => k >= targetIso);
 }
 function findLastKeyOnOrBefore(
@@ -271,98 +183,102 @@ export default function MonthlyDataTable({
   availableMonths,
   categories,
 }: MonthlyDataTableProps) {
+  /* ────────────────────────────────────────────────────────────────
+     Local UI state
+     ──────────────────────────────────────────────────────────────── */
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [minSharesFilter, setMinSharesFilter] = useState<string>("");
   const [maxSharesFilter, setMaxSharesFilter] = useState<string>("");
   const [sortBy, setSortBy] = useState<string>("name");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
-  const [localData, setLocalData] = useState<MonthlyInvestorData[]>(data);
-
-  // NEW: ranking & time range controls (default preserves current behavior)
   const [rankingMode, setRankingMode] = useState<RankingMode>("none");
   const [timeRange, setTimeRange] = useState<TimeRangeKey>("allTime");
 
-  // Ensure we have a sorted copy of month keys for computations
-  const monthsAsc = [...availableMonths].sort(); // ISO yyyy-mm-dd sorting works lexicographically
+  /* ────────────────────────────────────────────────────────────────
+     Derived lists
+     ──────────────────────────────────────────────────────────────── */
+  const monthsAsc = useMemo(
+    () => [...availableMonths].sort(),
+    [availableMonths]
+  );
   const hasMonths = monthsAsc.length > 0;
   const latestIso = hasMonths ? monthsAsc[monthsAsc.length - 1] : undefined;
   const latestDate = latestIso ? new Date(latestIso) : undefined;
 
-  // Get display labels for the available months
-  const displayLabels = getMonthDisplayLabels(availableMonths);
+  const displayLabels = useMemo(
+    () => getMonthDisplayLabels(availableMonths),
+    [availableMonths]
+  );
 
-  // Filter data to only include investors with more than 20,000 shares in any month
-  const filteredForMinShares = localData.filter((investor) => {
-    const maxShares = Math.max(
-      ...availableMonths.map((month) => investor.monthlyShares[month] || 0)
-    );
-    return maxShares > 20000;
-  });
+  /* ────────────────────────────────────────────────────────────────
+     Filtering / sorting
+     ──────────────────────────────────────────────────────────────── */
+  const filteredBase = useMemo(() => {
+    return data.filter((investor) => {
+      // Pre-filter: at least one month has >20k
+      const maxShares = Math.max(
+        ...availableMonths.map((m) => investor.monthlyShares[m] || 0)
+      );
+      if (maxShares <= 20000) return false;
 
-  // Filter data
-  const filteredData = filteredForMinShares.filter((investor) => {
-    // Search filter
-    if (searchQuery && searchQuery.trim().length > 0) {
-      const query = searchQuery.toLowerCase().trim();
-      const nameMatch = investor.name.toLowerCase().includes(query);
-      const descriptionMatch =
-        investor.description &&
-        investor.description.toLowerCase().includes(query);
-      if (!nameMatch && !descriptionMatch) {
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const nameMatch = investor.name.toLowerCase().includes(q);
+        const descMatch = investor.description
+          ? investor.description.toLowerCase().includes(q)
+          : false;
+        if (!nameMatch && !descMatch) return false;
+      }
+
+      if (
+        selectedCategory !== "all" &&
+        investor.category !== selectedCategory
+      ) {
         return false;
       }
-    }
 
-    // Category filter
-    if (selectedCategory !== "all" && investor.category !== selectedCategory) {
-      return false;
-    }
+      const latestMonth = availableMonths[availableMonths.length - 1];
+      const latestShares = investor.monthlyShares[latestMonth] || 0;
 
-    // Share count filters
-    const latestMonth = availableMonths[availableMonths.length - 1];
-    const latestShares = investor.monthlyShares[latestMonth] || 0;
+      if (minSharesFilter && latestShares < parseInt(minSharesFilter))
+        return false;
+      if (maxSharesFilter && latestShares > parseInt(maxSharesFilter))
+        return false;
 
-    if (
-      minSharesFilter &&
-      minSharesFilter.trim() !== "" &&
-      latestShares < parseInt(minSharesFilter)
-    ) {
-      return false;
-    }
+      return true;
+    });
+  }, [
+    data,
+    availableMonths,
+    searchQuery,
+    selectedCategory,
+    minSharesFilter,
+    maxSharesFilter,
+  ]);
 
-    if (
-      maxSharesFilter &&
-      maxSharesFilter.trim() !== "" &&
-      latestShares > parseInt(maxSharesFilter)
-    ) {
-      return false;
-    }
+  const baselineSorted = useMemo(() => {
+    const arr = [...filteredBase];
+    arr.sort((a, b) => {
+      let av: any;
+      let bv: any;
+      if (sortBy === "name") {
+        av = a.name;
+        bv = b.name;
+      } else if (sortBy === "category") {
+        av = a.category;
+        bv = b.category;
+      } else if (availableMonths.includes(sortBy)) {
+        av = a.monthlyShares[sortBy] || 0;
+        bv = b.monthlyShares[sortBy] || 0;
+      }
+      if (av < bv) return sortOrder === "asc" ? -1 : 1;
+      if (av > bv) return sortOrder === "asc" ? 1 : -1;
+      return 0;
+    });
+    return arr;
+  }, [filteredBase, sortBy, sortOrder, availableMonths]);
 
-    return true;
-  });
-
-  // Baseline sort (existing behavior)
-  const baselineSorted = [...filteredData].sort((a, b) => {
-    let aValue: any, bValue: any;
-
-    if (sortBy === "name") {
-      aValue = a.name;
-      bValue = b.name;
-    } else if (sortBy === "category") {
-      aValue = a.category;
-      bValue = b.category;
-    } else if (availableMonths.includes(sortBy)) {
-      aValue = a.monthlyShares[sortBy] || 0;
-      bValue = b.monthlyShares[sortBy] || 0;
-    }
-
-    if (aValue < bValue) return sortOrder === "asc" ? -1 : 1;
-    if (aValue > bValue) return sortOrder === "asc" ? 1 : -1;
-    return 0;
-  });
-
-  // --- NEW: compute deltas inside selected time window (only if rankingMode != "none") ---
   function getRangeBoundsKeys(): { startKey?: string; endKey?: string } {
     if (!hasMonths || !latestDate || !latestIso)
       return { startKey: undefined, endKey: undefined };
@@ -383,11 +299,10 @@ export default function MonthlyDataTable({
         start = addDays(latestDate, -90);
         end = latestDate;
         break;
-      case "thisQuarter": {
+      case "thisQuarter":
         start = startOfQuarter(latestDate);
         end = latestDate;
         break;
-      }
       case "lastQuarter": {
         const { start: s, end: e } = previousQuarterBounds(latestDate);
         start = s;
@@ -403,58 +318,49 @@ export default function MonthlyDataTable({
 
     const startIso = isoDate(start);
     const endIso = isoDate(end);
-
     const startKey = findFirstKeyOnOrAfter(monthsAsc, startIso);
     const endKey = findLastKeyOnOrBefore(monthsAsc, endIso);
-
     return { startKey, endKey };
   }
 
   const { startKey, endKey } = getRangeBoundsKeys();
 
-  // Map of investor → delta in selected range
-  const deltaMap: Map<string, number> = new Map();
-  if (rankingMode !== "none" && startKey && endKey) {
-    for (const inv of filteredData) {
-      const startShares = inv.monthlyShares[startKey] || 0;
-      const endShares = inv.monthlyShares[endKey] || 0;
-      const delta = endShares - startShares;
-      deltaMap.set(inv.name, delta);
-    }
-  }
+  const sortedData = useMemo(() => {
+    if (rankingMode === "none" || !startKey || !endKey) return baselineSorted;
 
-  // Final sorted data:
-  // - if rankingMode is "none" → keep baseline sort
-  // - else sort by delta (buyers: desc, sellers: asc)
-  const sortedData =
-    rankingMode === "none" || !startKey || !endKey
-      ? baselineSorted
-      : [...filteredData].sort((a, b) => {
-          const da = deltaMap.get(a.name) ?? 0;
-          const db = deltaMap.get(b.name) ?? 0;
-          if (rankingMode === "buyers") return db - da; // highest positive change first
-          return da - db; // most negative change first
-        });
+    const delta = new Map<string, number>();
+    for (const inv of baselineSorted) {
+      const s = inv.monthlyShares[startKey] || 0;
+      const e = inv.monthlyShares[endKey] || 0;
+      delta.set(inv.name, e - s);
+    }
+
+    const arr = [...baselineSorted];
+    arr.sort((a, b) => {
+      const da = delta.get(a.name) ?? 0;
+      const db = delta.get(b.name) ?? 0;
+      return rankingMode === "buyers" ? db - da : da - db;
+    });
+    return arr;
+  }, [baselineSorted, rankingMode, startKey, endKey]);
 
   const handleSort = (field: string) => {
-    if (sortBy === field) {
-      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
-    } else {
+    if (sortBy === field) setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+    else {
       setSortBy(field);
       setSortOrder("asc");
     }
   };
-
-  const getSortIcon = (field: string) => {
-    if (sortBy !== field) return null;
-    return sortOrder === "asc" ? (
-      <ArrowUp className="w-4 h-4 ml-1" />
+  const getSortIcon = (field: string) =>
+    sortBy !== field ? null : sortOrder === "asc" ? (
+      <ArrowUp className="w-4 h-4 ml-1 inline-block" />
     ) : (
-      <ArrowDown className="w-4 h-4 ml-1" />
+      <ArrowDown className="w-4 h-4 ml-1 inline-block" />
     );
-  };
 
-  // Get gradient intensity based on segmented ranges
+  /* ────────────────────────────────────────────────────────────────
+     Coloring helpers
+     ──────────────────────────────────────────────────────────────── */
   const getGradientIntensity = (shares: number): number => {
     if (shares <= 50000) return 0.2;
     if (shares <= 100000) return 0.4;
@@ -462,86 +368,44 @@ export default function MonthlyDataTable({
     if (shares <= 500000) return 0.8;
     return 1.0;
   };
-
-  // Get cell color with segmented gradient intensity
   const getCellColorWithGradient = (
     investor: MonthlyInvestorData,
     monthIndex: number
   ): string => {
     const currentMonth = availableMonths[monthIndex];
     const currentShares = investor.monthlyShares[currentMonth] || 0;
-
     if (currentShares === 0) return "";
 
-    // For the first month, use blue with intensity based on shares owned
     if (monthIndex === 0) {
       const opacity = getGradientIntensity(currentShares);
-      return `rgba(59, 130, 246, ${opacity})`; // Blue with segmented opacity
+      return `rgba(59, 130, 246, ${opacity})`; // blue
     }
 
-    // Calculate change from previous month
-    let changeType = "same";
-    const previousMonth = availableMonths[monthIndex - 1];
-    const previousShares = investor.monthlyShares[previousMonth] || 0;
+    const prevMonth = availableMonths[monthIndex - 1];
+    const prevShares = investor.monthlyShares[prevMonth] || 0;
 
-    if (currentShares > previousShares) {
-      changeType = "increase";
-    } else if (currentShares < previousShares) {
-      changeType = "decrease";
-    }
+    const change = currentShares - prevShares;
+    const opacity = getGradientIntensity(Math.abs(change));
 
-    // Calculate intensity based on segmented ranges
-    const changeAmount = Math.abs(currentShares - previousShares);
-    const opacity = getGradientIntensity(changeAmount);
-
-    // Apply gradient colors based on change type
-    if (changeType === "increase") {
-      return `rgba(34, 197, 94, ${opacity})`; // Green with segmented opacity
-    } else if (changeType === "decrease") {
-      return `rgba(239, 68, 68, ${opacity})`; // Red with segmented opacity
-    } else {
-      return `rgba(59, 130, 246, ${opacity})`; // Blue with segmented opacity
-    }
+    if (change > 0) return `rgba(34, 197, 94, ${opacity})`; // green
+    if (change < 0) return `rgba(239, 68, 68, ${opacity})`; // red
+    return `rgba(59, 130, 246, ${opacity})`; // same/blue
   };
 
-  const handleGroupInvestors = (
-    sourceInvestor: string,
-    targetGroup: string
-  ) => {
-    const updatedData = [...localData];
-    const sourceIndex = updatedData.findIndex(
-      (inv) => inv.name === sourceInvestor
-    );
-    const targetIndex = updatedData.findIndex(
-      (inv) => inv.name === targetGroup
-    );
+  /* ────────────────────────────────────────────────────────────────
+     Header grid template (for fixed widths)
+     ──────────────────────────────────────────────────────────────── */
+  const colWidths = useMemo(() => {
+    return {
+      name: "300px",
+      category: "140px",
+      month: "110px",
+    };
+  }, []);
 
-    if (sourceIndex === -1 || targetIndex === -1) return;
-
-    const source = updatedData[sourceIndex];
-    const target = updatedData[targetIndex];
-
-    // Add source to target's individual investors
-    if (!target.individualInvestors) {
-      target.individualInvestors = [target];
-    }
-    target.individualInvestors.push(source);
-
-    // Merge shares
-    Object.keys(source.monthlyShares).forEach((month) => {
-      target.monthlyShares[month] =
-        (target.monthlyShares[month] || 0) + (source.monthlyShares[month] || 0);
-    });
-
-    // Update description
-    target.description = `Grouped fund (${target.individualInvestors.length} entities)`;
-
-    // Remove source from main list
-    updatedData.splice(sourceIndex, 1);
-
-    setLocalData(updatedData);
-  };
-
+  /* ────────────────────────────────────────────────────────────────
+     UI
+     ──────────────────────────────────────────────────────────────── */
   return (
     <div className="space-y-4">
       {/* Legend */}
@@ -559,7 +423,7 @@ export default function MonthlyDataTable({
         </span>
       </div>
 
-      {/* Filters and Controls */}
+      {/* Filters */}
       <div className="flex flex-wrap gap-4 items-center">
         <div className="flex gap-2">
           <Input
@@ -600,12 +464,6 @@ export default function MonthlyDataTable({
           className="w-32"
         />
 
-        <ManualGroupingDialog
-          data={localData}
-          onGroupInvestors={handleGroupInvestors}
-        />
-
-        {/* NEW: Ranking + Time range (minimal UI addition) */}
         <div className="flex gap-2">
           <Select
             value={rankingMode}
@@ -651,97 +509,120 @@ export default function MonthlyDataTable({
         ) : null}
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-lg shadow border overflow-hidden">
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/50">
-                <TableHead className="w-8"></TableHead>
-                <TableHead
-                  className="cursor-pointer"
-                  onClick={() => handleSort("name")}
+      {/* Scroll container */}
+      <div
+        role="region"
+        aria-labelledby="monthly-caption"
+        tabIndex={0}
+        className="w-full max-h-[80vh] overflow-auto bg-white rounded-lg shadow border"
+        style={{
+          scrollbarColor: "rgba(107,114,128,1) rgba(229,231,235,1)",
+          WebkitOverflowScrolling: "touch",
+        }}
+      >
+        <table className="min-w-full table-fixed border-separate border-spacing-0">
+          <caption
+            id="monthly-caption"
+            className="text-left p-2 sticky left-0 bg-white"
+          >
+            Monthly Investor Holdings
+          </caption>
+
+          {/* Fixed column widths to keep header/body aligned */}
+          <colgroup>
+            <col style={{ width: colWidths.name }} />
+            <col style={{ width: colWidths.category }} />
+            {availableMonths.map((_, i) => (
+              <col key={i} style={{ width: colWidths.month }} />
+            ))}
+          </colgroup>
+
+          <thead>
+            <tr>
+              {/* top+left sticky for the very first header cell */}
+              <th
+                scope="col"
+                className="sticky top-0 left-0 z-50 bg-white px-4 py-2 text-left border border-gray-200 whitespace-nowrap cursor-pointer"
+                onClick={() => handleSort("name")}
+              >
+                Fund Group / Investor {getSortIcon("name")}
+              </th>
+
+              <th
+                scope="col"
+                className="sticky top-0 z-40 bg-white px-4 py-2 text-left border border-gray-200 whitespace-nowrap cursor-pointer"
+                onClick={() => handleSort("category")}
+              >
+                Category {getSortIcon("category")}
+              </th>
+
+              {displayLabels.map((label, idx) => (
+                <th
+                  key={availableMonths[idx]}
+                  scope="col"
+                  className="sticky top-0 z-40 bg-white px-4 py-2 text-right border border-gray-200 whitespace-nowrap cursor-pointer"
+                  onClick={() => handleSort(availableMonths[idx])}
                 >
-                  <div className="flex items-center">
-                    Fund Group / Investor
-                    {getSortIcon("name")}
-                  </div>
-                </TableHead>
-                <TableHead
-                  className="cursor-pointer"
-                  onClick={() => handleSort("category")}
+                  {label} {getSortIcon(availableMonths[idx])}
+                </th>
+              ))}
+            </tr>
+          </thead>
+
+          <tbody>
+            {sortedData.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={2 + availableMonths.length}
+                  className="h-24 text-center border border-gray-200"
                 >
-                  <div className="flex items-center">
-                    Category
-                    {getSortIcon("category")}
-                  </div>
-                </TableHead>
-                {displayLabels.map((label, index) => (
-                  <TableHead
-                    key={availableMonths[index]}
-                    className="cursor-pointer text-right"
-                    onClick={() => handleSort(availableMonths[index])}
+                  No investors found with &gt;20,000 shares.
+                </td>
+              </tr>
+            ) : (
+              sortedData.map((inv) => (
+                <tr key={inv.name}>
+                  {/* FIRST COLUMN as <th scope="row"> so it can be sticky left */}
+                  <th
+                    scope="row"
+                    className="sticky left-0 z-30 bg-white px-4 py-2 text-left border border-gray-200 font-medium"
                   >
-                    <div className="flex items-center justify-end">
-                      {label}
-                      {getSortIcon(availableMonths[index])}
-                    </div>
-                  </TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {sortedData.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={3 + availableMonths.length}
-                    className="h-24 text-center"
-                  >
-                    No investors found with &gt;20,000 shares.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                sortedData.map((investor) => (
-                  <TableRow key={investor.name}>
-                    <TableCell>
-                      <FundBreakdownDialog investor={investor} />
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      {investor.name}
-                      {investor.individualInvestors &&
-                        investor.individualInvestors.length > 1 && (
+                    <div className="flex items-center gap-2">
+                      <FundBreakdownDialog investor={inv} />
+                      <span>{inv.name}</span>
+                      {inv.individualInvestors &&
+                        inv.individualInvestors.length > 1 && (
                           <span className="ml-2 text-xs text-muted-foreground">
-                            ({investor.individualInvestors.length} entities)
+                            ({inv.individualInvestors.length} entities)
                           </span>
                         )}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{investor.category}</Badge>
-                    </TableCell>
-                    {availableMonths.map((month, index) => (
-                      <TableCell
-                        key={month}
-                        className="text-right"
-                        style={{
-                          backgroundColor: getCellColorWithGradient(
-                            investor,
-                            index
-                          ),
-                          color:
-                            investor.monthlyShares[month] > 0
-                              ? "rgba(0, 0, 0, 0.8)"
-                              : "inherit",
-                        }}
-                      >
-                        {(investor.monthlyShares[month] || 0).toLocaleString()}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
+                    </div>
+                  </th>
+
+                  <td className="px-4 py-2 border border-gray-200 min-w-[140px]">
+                    <Badge variant="outline">{inv.category}</Badge>
+                  </td>
+
+                  {availableMonths.map((month, index) => (
+                    <td
+                      key={month}
+                      className="px-4 py-2 border border-gray-200 text-right min-w-[110px]"
+                      style={{
+                        backgroundColor: getCellColorWithGradient(inv, index),
+                        color:
+                          (inv.monthlyShares[month] || 0) > 0
+                            ? "rgba(0,0,0,0.85)"
+                            : "inherit",
+                      }}
+                    >
+                      {(inv.monthlyShares[month] || 0).toLocaleString()}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

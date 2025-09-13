@@ -12,7 +12,8 @@ const Index: React.FC = () => {
   useEffect(() => {
     toast({
       title: "Welcome to the Investor Analytics Dashboard",
-      description: "Upload your Excel file to start analyzing investor behavior.",
+      description:
+        "Upload your Excel file to start analyzing investor behavior.",
     });
   }, [toast]);
 
@@ -59,19 +60,9 @@ const Index: React.FC = () => {
     <div className="flex flex-col min-h-screen bg-muted/30">
       <Toaster position="top-right" />
 
-      <div className="flex-1 flex flex-col space-y-4 p-4 md:p-8">
-        {/* Logout button */}
-        <div className="w-full md:flex md:justify-end">
-          <button
-            onClick={logout}
-            className="w-full md:w-auto bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition-colors"
-          >
-            Logout
-          </button>
-        </div>
-
+      <div className="flex-1 min-h-0 flex flex-col space-y-4 p-4 md:p-8">
         {/* Main dashboard */}
-        <div className="flex-1">
+        <div className="flex-1 min-h-0">
           <Dashboard />
         </div>
 

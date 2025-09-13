@@ -34,6 +34,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 
 /* ------------------------------------------------------------------ */
 /* Base-URL helper                                                    */
@@ -124,6 +125,14 @@ export default function Dashboard() {
   const legacySummary = generateAnalyticsSummary(legacyInvestors);
   const legacyComparisons = analyzeInvestorBehavior(legacyInvestors);
 
+  const onLogout = () => {
+    try {
+      localStorage.clear();
+      sessionStorage.clear();
+    } catch {}
+    window.location.href = "/login";
+  };
+
   if (displayData.length === 0) {
     return (
       <div className="space-y-8">
@@ -174,23 +183,33 @@ export default function Dashboard() {
           <div className="w-full sm:w-auto">
             <MonthlyFileUpload onDataLoaded={load} />
           </div>
+          <Button
+            className="bg-red-500 text-white"
+            variant="outline"
+            onClick={onLogout}
+          >
+            Logout
+          </Button>
         </div>
       </div>
 
       {/* tabs */}
-      <Tabs defaultValue="trends">
+      {/* tabs */}
+      <Tabs defaultValue="table">
         <TabsList className="overflow-x-auto whitespace-nowrap">
-          <TabsTrigger value="trends">Monthly Trends</TabsTrigger>
-          <TabsTrigger value="analytics">Analytics</TabsTrigger>
           <TabsTrigger value="table">Data Table</TabsTrigger>
+          <TabsTrigger value="analytics">Analytics</TabsTrigger>
+          <TabsTrigger value="trends">Monthly Trends</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="trends">
-          <MonthlyTrendChart
-            data={displayData}
-            availableMonths={availableMonths}
-            categories={categories}
-          />
+        <TabsContent value="table" className="min-h-0">
+          <div className="overflow-visible min-h-0">
+            <MonthlyDataTable
+              data={displayData}
+              availableMonths={availableMonths}
+              categories={categories}
+            />
+          </div>
         </TabsContent>
 
         <TabsContent value="analytics" className="space-y-6">
@@ -227,14 +246,12 @@ export default function Dashboard() {
           )}
         </TabsContent>
 
-        <TabsContent value="table">
-          <div className="overflow-auto">
-            <MonthlyDataTable
-              data={displayData}
-              availableMonths={availableMonths}
-              categories={categories}
-            />
-          </div>
+        <TabsContent value="trends">
+          <MonthlyTrendChart
+            data={displayData}
+            availableMonths={availableMonths}
+            categories={categories}
+          />
         </TabsContent>
       </Tabs>
     </div>
