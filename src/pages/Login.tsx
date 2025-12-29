@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import ii from "../assets/ii.png";      // left logo
+import ii from "../assets/ii.png"; // left logo
 import rightlogo from "../assets/P.png"; // right logo
 
 const API_BASE_URL = window.location.origin;
@@ -14,15 +14,33 @@ const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // If already authenticated (valid cookie), go to dashboard
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch("/api/session", { credentials: "include" });
+        if (r.ok) {
+          const redirectUrl =
+            localStorage.getItem("redirectAfterLogin") || "/dashboard";
+          localStorage.removeItem("redirectAfterLogin");
+          // Full reload ensures AuthProvider runs its /api/session probe with the fresh cookie
+          window.location.replace(redirectUrl);
+        }
+      } catch {}
+    })();
+  }, [navigate]);
+
   const sendOtp = async () => {
     setLoading(true);
     setError(null);
     try {
       const res = await fetch(`${API_BASE_URL}/api/send-otp`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
+
       const data = await res.json();
       if (!res.ok) {
         setError(data.message || "Failed to send OTP");
@@ -50,7 +68,10 @@ const Login: React.FC = () => {
       if (!res.ok) {
         setError(data.message || "Invalid OTP");
       } else {
-        navigate("/dashboard"); // Redirect to dashboard on success
+        const redirectUrl =
+          localStorage.getItem("redirectAfterLogin") || "/dashboard";
+        localStorage.removeItem("redirectAfterLogin");
+        navigate(redirectUrl, { replace: true });
       }
     } catch (err: any) {
       setError(err.message);
@@ -63,7 +84,6 @@ const Login: React.FC = () => {
     <div className="min-h-screen flex flex-col bg-background">
       {/* Header */}
       <header className="w-full flex justify-between items-center bg-white shadow-sm">
-        {/* same height (h-16), wider (w-32) */}
         <img src={ii} alt="Logo" className="h-24 object-contain" />
         <img src={rightlogo} alt="Right Logo" className="h-16 object-contain" />
       </header>
@@ -72,7 +92,9 @@ const Login: React.FC = () => {
       <div className="flex-grow flex items-center justify-center p-6">
         <div className="max-w-md w-full bg-card rounded-lg shadow-lg p-8">
           <h2 className="text-2xl font-bold mb-6 text-center">Login</h2>
-          {error && <div className="mb-4 text-red-600 text-center">{error}</div>}
+          {error && (
+            <div className="mb-4 text-red-600 text-center">{error}</div>
+          )}
 
           {step === "enterEmail" ? (
             <>
@@ -110,7 +132,7 @@ const Login: React.FC = () => {
                 value={otp}
                 onChange={(e) => setOtp(e.target.value)}
                 className="w-full border rounded p-2 mb-4"
-                placeholder="6‑digit code"
+                placeholder="6-digit code"
                 required
               />
               <button

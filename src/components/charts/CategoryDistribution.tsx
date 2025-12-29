@@ -10,6 +10,7 @@ import {
   PieController,
 } from "chart.js";
 import { Investor } from "@/types";
+import { MonthlyInvestorData } from "@/types";
 import {
   Card,
   CardHeader,
@@ -29,6 +30,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { X } from "lucide-react";
+
 
 ChartJS.register(ArcElement, Tooltip, Legend, PieController);
 

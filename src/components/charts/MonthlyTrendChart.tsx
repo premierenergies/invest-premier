@@ -255,7 +255,7 @@ export default function MonthlyTrendChart({
                   availableMonths[availableMonths.length - 1],
                 ])[0]
               }`
-            : "Month-over-Month Trends"}
+            : "Individual Investor Holdings"}
         </CardTitle>
         <CardDescription>
           {selectedCategory === "India FIs" && !searchQuery.trim()
@@ -293,14 +293,14 @@ export default function MonthlyTrendChart({
         {error && <div className="text-red-600 text-sm mt-2">{error}</div>}
       </CardHeader>
 
-      <CardContent>
-        <div className="h-[400px] relative">
+            <CardContent>
+              <div className="relative h-[360px] md:h-[560px] xl:h-[720px]">
           {isLoading && (
             <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
           )}
-          <canvas ref={chartRef} />
+          <canvas ref={chartRef} className="w-full h-full" />
         </div>
 
         {!isLoading && !error && (

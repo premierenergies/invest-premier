@@ -4,24 +4,43 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
+import ProtectedRoute from "@/components/ProtectedRoute";
+import { AuthProvider } from "@/contexts/AuthContext";
+import { useAuth } from "@/contexts/AuthContext";
+
+// Add this component above App:
+const HomeGate: React.FC = () => {
+  const { isAuthenticated, ready } = useAuth();
+  if (!ready) return null; // avoid flicker/race
+  return <Navigate to={isAuthenticated ? "/dashboard" : "/login"} replace />;
+};
 
 const App: React.FC = () => {
   return (
-    <BrowserRouter>
-      <Routes>
-        {/* Default: redirect "/" → Login */}
-        <Route path="/" element={<Navigate to="/login" replace />} />
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          {/* Default: redirect "/" → Login */}
+          <Route path="/" element={<HomeGate />} />
 
-        {/* public login screen */}
-        <Route path="/login" element={<Login />} />
+          {/* public login screen */}
+          <Route path="/login" element={<Login />} />
 
-        {/* protected dashboard now lives at /dashboard */}
-        <Route path="/dashboard" element={<Index />} />
+          {/* protected dashboard lives at /dashboard */}
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute redirectTo="/login">
+                <Index />
+              </ProtectedRoute>
+            }
+          />
 
-        {/* any unknown URL → NotFound */}
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </BrowserRouter>
+          {/* any unknown URL → NotFound */}
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   );
 };
 

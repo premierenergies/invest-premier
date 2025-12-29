@@ -1,9 +1,21 @@
-
 import { useState } from "react";
 import { Investor, FilterOptions } from "@/types";
-import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
+import {
+  Table,
+  TableHeader,
+  TableRow,
+  TableHead,
+  TableBody,
+  TableCell,
+} from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { ArrowDown, ArrowUp, Search } from "lucide-react";
 import FundGroupBreakdown from "./FundGroupBreakdown";
@@ -16,7 +28,13 @@ interface InvestorTableProps {
   onFilterChange: (filters: Partial<FilterOptions>) => void;
 }
 
-export default function InvestorTable({ investors, categories, fundGroups, filters, onFilterChange }: InvestorTableProps) {
+export default function InvestorTable({
+  investors,
+  categories,
+  fundGroups,
+  filters,
+  onFilterChange,
+}: InvestorTableProps) {
   const [searchInput, setSearchInput] = useState(filters.searchQuery);
 
   const handleSearch = (e: React.FormEvent) => {
@@ -25,16 +43,18 @@ export default function InvestorTable({ investors, categories, fundGroups, filte
   };
 
   const handleSort = (field: FilterOptions["sortBy"]) => {
-    const newSortOrder = 
-      filters.sortBy === field && filters.sortOrder === "asc" ? "desc" : "asc";
+    const newSortOrder =
+      sortBy === field ? (sortOrder === "asc" ? "desc" : "asc") : "desc";
     onFilterChange({ sortBy: field, sortOrder: newSortOrder });
   };
 
   const getSortIcon = (field: string) => {
     if (filters.sortBy !== field) return null;
-    return filters.sortOrder === "asc" ? 
-      <ArrowUp className="w-4 h-4 ml-1" /> : 
-      <ArrowDown className="w-4 h-4 ml-1" />;
+    return filters.sortOrder === "asc" ? (
+      <ArrowUp className="w-4 h-4 ml-1" />
+    ) : (
+      <ArrowDown className="w-4 h-4 ml-1" />
+    );
   };
 
   return (
@@ -52,11 +72,13 @@ export default function InvestorTable({ investors, categories, fundGroups, filte
           </div>
           <Button type="submit">Search</Button>
         </form>
-        
+
         <div className="flex gap-2 w-full sm:w-auto">
           <Select
             value={filters.category || "all"}
-            onValueChange={(value) => onFilterChange({ category: value === "all" ? null : value })}
+            onValueChange={(value) =>
+              onFilterChange({ category: value === "all" ? null : value })
+            }
           >
             <SelectTrigger className="w-full sm:w-[180px]">
               <SelectValue placeholder="All Categories" />
@@ -73,7 +95,9 @@ export default function InvestorTable({ investors, categories, fundGroups, filte
 
           <Select
             value={filters.fundGroup || "all"}
-            onValueChange={(value) => onFilterChange({ fundGroup: value === "all" ? null : value })}
+            onValueChange={(value) =>
+              onFilterChange({ fundGroup: value === "all" ? null : value })
+            }
           >
             <SelectTrigger className="w-full sm:w-[180px]">
               <SelectValue placeholder="All Fund Groups" />
@@ -96,7 +120,7 @@ export default function InvestorTable({ investors, categories, fundGroups, filte
             <TableHeader>
               <TableRow className="bg-muted/50 hover:bg-muted/50">
                 <TableHead className="w-8"></TableHead>
-                <TableHead 
+                <TableHead
                   className="cursor-pointer"
                   onClick={() => handleSort("name")}
                 >
@@ -105,7 +129,7 @@ export default function InvestorTable({ investors, categories, fundGroups, filte
                     {getSortIcon("name")}
                   </div>
                 </TableHead>
-                <TableHead 
+                <TableHead
                   className="cursor-pointer text-right"
                   onClick={() => handleSort("boughtOn18")}
                 >
@@ -114,7 +138,7 @@ export default function InvestorTable({ investors, categories, fundGroups, filte
                     {getSortIcon("boughtOn18")}
                   </div>
                 </TableHead>
-                <TableHead 
+                <TableHead
                   className="cursor-pointer text-right"
                   onClick={() => handleSort("soldOn25")}
                 >
@@ -123,7 +147,7 @@ export default function InvestorTable({ investors, categories, fundGroups, filte
                     {getSortIcon("soldOn25")}
                   </div>
                 </TableHead>
-                <TableHead 
+                <TableHead
                   className="cursor-pointer text-right"
                   onClick={() => handleSort("netChange")}
                 >
@@ -132,7 +156,7 @@ export default function InvestorTable({ investors, categories, fundGroups, filte
                     {getSortIcon("netChange")}
                   </div>
                 </TableHead>
-                <TableHead 
+                <TableHead
                   className="cursor-pointer text-right"
                   onClick={() => handleSort("percentToEquity")}
                 >
@@ -159,26 +183,35 @@ export default function InvestorTable({ investors, categories, fundGroups, filte
                     </TableCell>
                     <TableCell className="font-medium">
                       {investor.name}
-                      {investor.individualInvestors && investor.individualInvestors.length > 1 && (
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          ({investor.individualInvestors.length} entities)
-                        </span>
-                      )}
+                      {investor.individualInvestors &&
+                        investor.individualInvestors.length > 1 && (
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            ({investor.individualInvestors.length} entities)
+                          </span>
+                        )}
                     </TableCell>
-                    <TableCell className="text-right">{investor.boughtOn18.toLocaleString()}</TableCell>
-                    <TableCell className="text-right">{investor.soldOn25.toLocaleString()}</TableCell>
                     <TableCell className="text-right">
-                      <span className={
-                        (investor.netChange || 0) > 0 
-                          ? "text-dashboard-success" 
-                          : (investor.netChange || 0) < 0 
-                            ? "text-dashboard-danger" 
+                      {investor.boughtOn18.toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {investor.soldOn25.toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <span
+                        className={
+                          (investor.netChange || 0) > 0
+                            ? "text-dashboard-success"
+                            : (investor.netChange || 0) < 0
+                            ? "text-dashboard-danger"
                             : ""
-                      }>
+                        }
+                      >
                         {(investor.netChange || 0).toLocaleString()}
                       </span>
                     </TableCell>
-                    <TableCell className="text-right">{investor.percentToEquity.toFixed(2)}%</TableCell>
+                    <TableCell className="text-right">
+                      {investor.percentToEquity.toFixed(2)}%
+                    </TableCell>
                     <TableCell>
                       <span className="px-2 py-1 rounded-full text-xs bg-dashboard-accent/10 text-dashboard-accent">
                         {investor.category}

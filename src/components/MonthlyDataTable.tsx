@@ -1,5 +1,10 @@
 // src/components/MonthlyDataTable.tsx
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, type ReactNode } from "react";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card";
 import { MonthlyInvestorData } from "@/types";
 import { Input } from "@/components/ui/input";
 import {
@@ -21,6 +26,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { getMonthDisplayLabels } from "@/utils/csvUtils";
+import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
 
 interface MonthlyDataTableProps {
   data: MonthlyInvestorData[];
@@ -28,6 +34,7 @@ interface MonthlyDataTableProps {
   categories: string[];
 }
 
+const IPO_START_ISO = "2024-09-03";
 /* ──────────────────────────────────────────────────────────────────
    Dialog: fund breakdown (simple table, sticky header only)
    ────────────────────────────────────────────────────────────────── */
@@ -104,8 +111,10 @@ function FundBreakdownDialog({ investor }: { investor: MonthlyInvestorData }) {
                     <td className="px-4 py-2 border border-gray-200 font-medium">
                       {individual.name}
                     </td>
-                    <td className="px-4 py-2 border border-gray-200">
-                      <Badge variant="outline">{individual.category}</Badge>
+                    <td className="px-4 py-2 border border-gray-200 min-w-[120px]">
+                      <Badge variant="outline">
+                        {individual.category || "—"}
+                      </Badge>
                     </td>
 
                     {headerMonthKeys.map((month) => (
@@ -185,6 +194,68 @@ function findLastKeyOnOrBefore(
   }
   return undefined;
 }
+// Helper: display category; for groups without a category, pick the member
+// with the largest holding at the latest month available for the group.
+function getCategoryDisplay(inv: MonthlyInvestorData): string {
+  const direct = (inv.category ?? "").trim();
+  if (direct) return direct;
+
+  const members = inv.individualInvestors ?? [];
+  if (!members.length) return "—";
+
+  const monthKeys = Object.keys(inv.monthlyShares || {}).sort();
+  const latestKey = monthKeys[monthKeys.length - 1];
+  if (!latestKey) {
+    const firstCat =
+      members.map((m) => (m.category ?? "").trim()).find(Boolean) || "";
+    return firstCat || "—";
+  }
+
+  let bestCat = "";
+  let best = -1;
+  for (const m of members) {
+    const v = Number(m.monthlyShares?.[latestKey] || 0);
+    if (v > best) {
+      best = v;
+      bestCat = (m.category ?? "").trim();
+    }
+  }
+  return bestCat || "—";
+}
+/* ──────────────────────────────────────────────────────────────────
+   Display helpers for group label
+   ────────────────────────────────────────────────────────────────── */
+function longestCommonPrefixCase(names: string[]): string {
+  if (!names || names.length === 0) return "";
+  let prefix = (names[0] || "").trim();
+  for (const raw of names.slice(1)) {
+    const s = (raw || "").trim();
+    let i = 0;
+    while (
+      i < prefix.length &&
+      i < s.length &&
+      prefix[i].toLowerCase() === s[i].toLowerCase()
+    ) {
+      i++;
+    }
+    prefix = prefix.slice(0, i);
+    if (!prefix) break;
+  }
+  // clean trailing punctuation/spaces like " -", "," etc.
+  return prefix.replace(/[\s-,:;]+$/, "").trim();
+}
+
+function getDisplayName(inv: MonthlyInvestorData): string {
+  const members = inv.individualInvestors;
+  if (members && members.length > 1) {
+    const lcp = longestCommonPrefixCase(members.map((m) => m.name || ""));
+    // Use LCP if it looks meaningfully longer than the short fundGroup key
+    if (lcp && lcp.length >= Math.max(12, inv.fundGroup?.length || 0)) {
+      return lcp;
+    }
+  }
+  return inv.name; // fallback to whatever the object carries
+}
 
 export default function MonthlyDataTable({
   data,
@@ -202,10 +273,12 @@ export default function MonthlyDataTable({
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [rankingMode, setRankingMode] = useState<RankingMode>("none");
   const [timeRange, setTimeRange] = useState<TimeRangeKey>("allTime");
+  const [oldestFirst, setOldestFirst] = useState(true);
 
   /* ────────────────────────────────────────────────────────────────
      Derived lists
      ──────────────────────────────────────────────────────────────── */
+
   const monthsAsc = useMemo(
     () => [...availableMonths].sort(),
     [availableMonths]
@@ -214,13 +287,31 @@ export default function MonthlyDataTable({
   const latestIso = hasMonths ? monthsAsc[monthsAsc.length - 1] : undefined;
   const latestDate = latestIso ? new Date(latestIso) : undefined;
 
+  // Only display columns from IPO date onward (inclusive), in ASC
+  const monthsDisplayAsc = useMemo(
+    () => monthsAsc.filter((k) => k >= IPO_START_ISO),
+    [monthsAsc]
+  );
+
+  // Final order for the table header/body (default IPO→Latest)
+  const monthsForDisplay = useMemo(
+    () =>
+      oldestFirst ? [...monthsDisplayAsc] : [...monthsDisplayAsc].reverse(),
+    [monthsDisplayAsc, oldestFirst]
+  );
+
+  // Labels follow the display order
   const displayLabels = useMemo(
-    () => getMonthDisplayLabels(availableMonths),
-    [availableMonths]
+    () => getMonthDisplayLabels(monthsForDisplay),
+    [monthsForDisplay]
   );
 
   /* ────────────────────────────────────────────────────────────────
      Filtering / sorting
+       const displayLabels = useMemo(
+    () => getMonthDisplayLabels(availableMonths),
+    [availableMonths]
+  );
      ──────────────────────────────────────────────────────────────── */
   const filteredBase = useMemo(() => {
     return data.filter((investor) => {
@@ -292,6 +383,7 @@ export default function MonthlyDataTable({
       return { startKey: undefined, endKey: undefined };
 
     let start: Date;
+
     let end: Date;
 
     switch (timeRange) {
@@ -369,35 +461,43 @@ export default function MonthlyDataTable({
   /* ────────────────────────────────────────────────────────────────
      Coloring helpers
      ──────────────────────────────────────────────────────────────── */
-  const getGradientIntensity = (shares: number): number => {
-    if (shares <= 50000) return 0.2;
-    if (shares <= 100000) return 0.4;
-    if (shares <= 200000) return 0.6;
-    if (shares <= 500000) return 0.8;
-    return 1.0;
+  /* ────────────────────────────────────────────────────────────────
+   Coloring helpers  (shared by legend & table)
+   ──────────────────────────────────────────────────────────────── */
+  // Buckets are inclusive upper-bounds for |Δshares| → opacity step
+  const GRADIENT_THRESHOLDS = [50_000, 100_000, 200_000, 500_000] as const;
+  const OPACITY_STEPS = [0.2, 0.4, 0.6, 0.8, 1.0] as const;
+
+  const getGradientIntensity = (absDelta: number): number => {
+    if (absDelta <= GRADIENT_THRESHOLDS[0]) return OPACITY_STEPS[0];
+    if (absDelta <= GRADIENT_THRESHOLDS[1]) return OPACITY_STEPS[1];
+    if (absDelta <= GRADIENT_THRESHOLDS[2]) return OPACITY_STEPS[2];
+    if (absDelta <= GRADIENT_THRESHOLDS[3]) return OPACITY_STEPS[3];
+    return OPACITY_STEPS[4];
   };
+
   const getCellColorWithGradient = (
     investor: MonthlyInvestorData,
     monthIndex: number
   ): string => {
-    const currentMonth = availableMonths[monthIndex];
-    const currentShares = investor.monthlyShares[currentMonth] || 0;
-    if (currentShares === 0) return "";
+    const currentMonth = monthsForDisplay[monthIndex];
+    const current = investor.monthlyShares[currentMonth] || 0;
+    if (current === 0) return "";
 
+    // No previous column to compare → blue (order-agnostic)
     if (monthIndex === 0) {
-      const opacity = getGradientIntensity(currentShares);
-      return `rgba(59, 130, 246, ${opacity})`; // blue
+      const op = getGradientIntensity(0);
+      return `rgba(59, 130, 246, ${op})`;
     }
 
-    const prevMonth = availableMonths[monthIndex - 1];
-    const prevShares = investor.monthlyShares[prevMonth] || 0;
+    const prevMonth = monthsForDisplay[monthIndex - 1];
+    const prev = investor.monthlyShares[prevMonth] || 0;
+    const delta = current - prev;
+    const op = getGradientIntensity(Math.abs(delta));
 
-    const change = currentShares - prevShares;
-    const opacity = getGradientIntensity(Math.abs(change));
-
-    if (change > 0) return `rgba(34, 197, 94, ${opacity})`; // green
-    if (change < 0) return `rgba(239, 68, 68, ${opacity})`; // red
-    return `rgba(59, 130, 246, ${opacity})`; // same/blue
+    if (delta > 0) return `rgba(34, 197, 94, ${op})`; // green (bought)
+    if (delta < 0) return `rgba(239, 68, 68, ${op})`; // red (sold)
+    return `rgba(59, 130, 246, ${op})`; // blue (no change)
   };
 
   /* ────────────────────────────────────────────────────────────────
@@ -405,11 +505,115 @@ export default function MonthlyDataTable({
      ──────────────────────────────────────────────────────────────── */
   const colWidths = useMemo(() => {
     return {
-      name: "300px",
-      category: "140px",
-      month: "110px",
+      name: "250px", // was 240
+      category: "120px", // was 140
+      month: "96px", // was 110
     };
   }, []);
+
+  // ────────────────────────────────────────────────────────────────
+  // Hover card: show clubbed entity names neatly on hover
+  // ────────────────────────────────────────────────────────────────
+  function EntitiesHover({
+    investor,
+    trigger,
+  }: {
+    investor: MonthlyInvestorData;
+    trigger: ReactNode;
+  }) {
+    const hasGroup =
+      !!investor.individualInvestors && investor.individualInvestors.length > 1;
+
+    const latestKey = monthsAsc[monthsAsc.length - 1];
+    const latestLabel = latestKey
+      ? getMonthDisplayLabels([latestKey])[0]
+      : undefined;
+
+    return (
+      <HoverCard>
+        <HoverCardTrigger asChild>{trigger}</HoverCardTrigger>
+        <HoverCardPrimitive.Portal
+          container={
+            typeof document !== "undefined" ? document.body : undefined
+          }
+        >
+          <HoverCardContent
+            side="right"
+            align="start"
+            className="z-[1000] w-[420px] p-0 rounded-xl overflow-hidden shadow-xl"
+          >
+            {hasGroup ? (
+              <>
+                <div className="px-3 py-2 border-b bg-muted/40">
+                  <div className="text-sm font-semibold break-words whitespace-normal">
+                    {investor.name}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {investor.individualInvestors!.length} entities
+                    {latestLabel ? ` • as of ${latestLabel}` : ""}
+                  </div>
+                </div>
+
+                <div className="max-h-64 overflow-auto divide-y">
+                  {investor.individualInvestors!.map((ind, i) => {
+                    const latestVal = latestKey
+                      ? ind.monthlyShares[latestKey] || 0
+                      : 0;
+                    return (
+                      <div
+                        key={i}
+                        className="flex items-center gap-2 px-3 py-2"
+                      >
+                        <span className="w-6 text-xs text-muted-foreground tabular-nums">
+                          {i + 1}.
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div
+                            className="text-sm font-medium break-words"
+                            title={ind.name}
+                          >
+                            {ind.name}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground">
+                            {ind.category || "—"}
+                          </div>
+                        </div>
+                        <div className="text-sm tabular-nums">
+                          {latestVal.toLocaleString()}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="px-3 py-1.5 text-[11px] text-muted-foreground bg-muted/30">
+                  Tip: Click the eye icon to open the full breakdown with all
+                  months.
+                </div>
+              </>
+            ) : (
+              // Minimal card for single entities: full name + category (+ latest value)
+              <div className="px-3 py-2">
+                <div className="text-sm font-semibold break-words whitespace-normal">
+                  {investor.name}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {investor.category || "—"}
+                  {latestLabel ? ` • as of ${latestLabel}` : ""}
+                </div>
+                {latestKey && (
+                  <div className="mt-2 text-sm tabular-nums">
+                    Latest:{" "}
+                    {(investor.monthlyShares[latestKey] || 0).toLocaleString()}
+                  </div>
+                )}
+              </div>
+            )}
+          </HoverCardContent>
+        </HoverCardPrimitive.Portal>
+      </HoverCard>
+    );
+  }
 
   /* ────────────────────────────────────────────────────────────────
      UI
@@ -417,18 +621,74 @@ export default function MonthlyDataTable({
   return (
     <div className="space-y-4">
       {/* Legend */}
-      <div className="flex flex-col md:flex-row items-start md:items-center gap-4 p-4 bg-gray-50 rounded-lg">
-        <span className="text-sm font-medium">Legend:</span>
-        <Badge className="bg-green-100 text-green-800">
-          Green: Increased shares
-        </Badge>
-        <Badge className="bg-red-100 text-red-800">Red: Decreased shares</Badge>
-        <Badge className="bg-blue-100 text-blue-800">
-          Blue: Same/Initial month
-        </Badge>
-        <span className="text-xs text-muted-foreground mt-2 md:mt-0">
-          Intensity: Light (≤50k) → Dark (&gt;500k)
-        </span>
+      {/* Legend */}
+      <div className="flex flex-col gap-3 p-4 bg-gray-50 rounded-lg">
+        <div className="text-sm font-medium">Legend</div>
+
+        <div className="flex flex-col sm:flex-row gap-4 sm:items-center">
+          {/* Green scale (Bought / Δ > 0) */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs w-20 sm:w-auto">Bought</span>
+            {OPACITY_STEPS.map((op, i) => (
+              <span
+                key={`g${i}`}
+                className="h-4 w-6 rounded border border-black/5"
+                style={{ backgroundColor: `rgba(34, 197, 94, ${op})` }}
+                title={
+                  i === 0
+                    ? `Δ ≤ ${GRADIENT_THRESHOLDS[0].toLocaleString()}`
+                    : i === 1
+                    ? `Δ ≤ ${GRADIENT_THRESHOLDS[1].toLocaleString()}`
+                    : i === 2
+                    ? `Δ ≤ ${GRADIENT_THRESHOLDS[2].toLocaleString()}`
+                    : i === 3
+                    ? `Δ ≤ ${GRADIENT_THRESHOLDS[3].toLocaleString()}`
+                    : `Δ > ${GRADIENT_THRESHOLDS[3].toLocaleString()}`
+                }
+              />
+            ))}
+            <span className="text-[11px] text-muted-foreground">
+              Δ shares: ≤50k • ≤100k • ≤200k • ≤500k • &gt;500k
+            </span>
+          </div>
+
+          {/* Red scale (Sold / Δ < 0) */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs w-20 sm:w-auto">Sold</span>
+            {OPACITY_STEPS.map((op, i) => (
+              <span
+                key={`r${i}`}
+                className="h-4 w-6 rounded border border-black/5"
+                style={{ backgroundColor: `rgba(239, 68, 68, ${op})` }}
+                title={
+                  i === 0
+                    ? `|Δ| ≤ ${GRADIENT_THRESHOLDS[0].toLocaleString()}`
+                    : i === 1
+                    ? `|Δ| ≤ ${GRADIENT_THRESHOLDS[1].toLocaleString()}`
+                    : i === 2
+                    ? `|Δ| ≤ ${GRADIENT_THRESHOLDS[2].toLocaleString()}`
+                    : i === 3
+                    ? `|Δ| ≤ ${GRADIENT_THRESHOLDS[3].toLocaleString()}`
+                    : `|Δ| > ${GRADIENT_THRESHOLDS[3].toLocaleString()}`
+                }
+              />
+            ))}
+          </div>
+
+          {/* Blue note */}
+          <div className="flex items-center gap-2">
+            <Badge className="bg-blue-100 text-blue-800">Blue</Badge>
+            <span className="text-xs text-muted-foreground">
+              Leftmost column (no prior month to compare) or no change vs
+              previous
+            </span>
+          </div>
+        </div>
+
+        <div className="text-[11px] text-muted-foreground">
+          Columns default to <strong>IPO (Sep 03, 2024)</strong> →{" "}
+          <strong>latest upload</strong>. Use the toggle to reverse.
+        </div>
       </div>
 
       {/* Filters */}
@@ -504,6 +764,16 @@ export default function MonthlyDataTable({
             </SelectContent>
           </Select>
         </div>
+        <Button
+          variant="outline"
+          onClick={() => setOldestFirst((v) => !v)}
+          className="ml-auto"
+          title={
+            oldestFirst ? "Switch to Latest → First" : "Switch to IPO → Latest"
+          }
+        >
+          {oldestFirst ? "Order: IPO → Latest" : "Order: Latest → IPO"}
+        </Button>
       </div>
 
       <div className="text-sm text-muted-foreground">
@@ -533,24 +803,24 @@ export default function MonthlyDataTable({
             id="monthly-caption"
             className="text-left p-2 sticky left-0 bg-white"
           >
-            Monthly Investor Holdings
+            Monthly Investor Holdings — Columns:{" "}
+            {oldestFirst ? "IPO → Latest" : "Latest → IPO"}
           </caption>
 
           {/* Fixed column widths to keep header/body aligned */}
           <colgroup>
             <col style={{ width: colWidths.name }} />
             <col style={{ width: colWidths.category }} />
-            {availableMonths.map((_, i) => (
+            {monthsForDisplay.map((_, i) => (
               <col key={i} style={{ width: colWidths.month }} />
             ))}
           </colgroup>
 
           <thead>
             <tr>
-              {/* top+left sticky for the very first header cell */}
               <th
                 scope="col"
-                className="sticky top-0 left-0 z-50 bg-white px-4 py-2 text-left border border-gray-200 whitespace-nowrap cursor-pointer"
+                className="sticky top-0 left-0 z-50 bg-white px-3 py-2 text-left border border-gray-200 whitespace-nowrap cursor-pointer"
                 onClick={() => handleSort("name")}
               >
                 Fund Group / Investor {getSortIcon("name")}
@@ -566,12 +836,11 @@ export default function MonthlyDataTable({
 
               {displayLabels.map((label, idx) => (
                 <th
-                  key={availableMonths[idx]}
-                  scope="col"
+                  key={monthsForDisplay[idx]}
                   className="sticky top-0 z-40 bg-white px-4 py-2 text-right border border-gray-200 whitespace-nowrap cursor-pointer"
-                  onClick={() => handleSort(availableMonths[idx])}
+                  onClick={() => handleSort(monthsForDisplay[idx])}
                 >
-                  {label} {getSortIcon(availableMonths[idx])}
+                  {label} {getSortIcon(monthsForDisplay[idx])}
                 </th>
               ))}
             </tr>
@@ -581,53 +850,82 @@ export default function MonthlyDataTable({
             {sortedData.length === 0 ? (
               <tr>
                 <td
-                  colSpan={2 + availableMonths.length}
+                  colSpan={2 + monthsForDisplay.length}
                   className="h-24 text-center border border-gray-200"
                 >
                   No investors found with &gt;20,000 shares.
                 </td>
               </tr>
             ) : (
-              sortedData.map((inv) => (
-                <tr key={inv.name}>
-                  {/* FIRST COLUMN as <th scope="row"> so it can be sticky left */}
-                  <th
-                    scope="row"
-                    className="sticky left-0 z-30 bg-white px-4 py-2 text-left border border-gray-200 font-medium"
-                  >
-                    <div className="flex items-center gap-2">
-                      <FundBreakdownDialog investor={inv} />
-                      <span>{inv.name}</span>
-                      {inv.individualInvestors &&
-                        inv.individualInvestors.length > 1 && (
-                          <span className="ml-2 text-xs text-muted-foreground">
-                            ({inv.individualInvestors.length} entities)
-                          </span>
-                        )}
-                    </div>
-                  </th>
+              sortedData.map((inv) => {
+                const isGroup =
+                  !!inv.individualInvestors &&
+                  inv.individualInvestors.length > 1;
+                const label =
+                  inv.individualInvestors && inv.individualInvestors.length > 1
+                    ? getDisplayName(inv) // use LCP/group label only for true clubs
+                    : inv.name; // always full name for non-clubbed
+                // always show full name in the cell
+                // full name if not clubbed
 
-                  <td className="px-4 py-2 border border-gray-200 min-w-[140px]">
-                    <Badge variant="outline">{inv.category}</Badge>
-                  </td>
-
-                  {availableMonths.map((month, index) => (
-                    <td
-                      key={month}
-                      className="px-4 py-2 border border-gray-200 text-right min-w-[110px]"
-                      style={{
-                        backgroundColor: getCellColorWithGradient(inv, index),
-                        color:
-                          (inv.monthlyShares[month] || 0) > 0
-                            ? "rgba(0,0,0,0.85)"
-                            : "inherit",
-                      }}
+                return (
+                  <tr key={inv.name}>
+                    <th
+                      scope="row"
+                      className="sticky left-0 z-30 bg-white px-3 py-2 text-left border border-gray-200 font-medium"
                     >
-                      {(inv.monthlyShares[month] || 0).toLocaleString()}
+                      <div className="flex items-center gap-1.5">
+                        <FundBreakdownDialog investor={inv} />
+
+                        {/* Hover on the name */}
+                        <EntitiesHover
+                          investor={inv}
+                          trigger={
+                            <span
+                              title={inv.name}
+                              className="underline decoration-dotted underline-offset-4 cursor-help whitespace-normal break-words"
+                            >
+                              {label}
+                            </span>
+                          }
+                        />
+
+                        {/* Count only for clubbed groups */}
+                        {isGroup && (
+                          <EntitiesHover
+                            investor={inv}
+                            trigger={
+                              <span className="ml-2 text-xs text-muted-foreground cursor-help">
+                                ({inv.individualInvestors!.length} entities)
+                              </span>
+                            }
+                          />
+                        )}
+                      </div>
+                    </th>
+
+                    <td className="px-4 py-2 border border-gray-200 min-w-[120px]">
+                      <Badge variant="outline">{getCategoryDisplay(inv)}</Badge>
                     </td>
-                  ))}
-                </tr>
-              ))
+
+                    {monthsForDisplay.map((month, index) => (
+                      <td
+                        key={month}
+                        className="px-4 py-2 border border-gray-200 text-right min-w-[96px]"
+                        style={{
+                          backgroundColor: getCellColorWithGradient(inv, index),
+                          color:
+                            (inv.monthlyShares[month] || 0) > 0
+                              ? "rgba(0,0,0,0.85)"
+                              : "inherit",
+                        }}
+                      >
+                        {(inv.monthlyShares[month] || 0).toLocaleString()}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

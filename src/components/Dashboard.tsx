@@ -24,6 +24,7 @@ import InvestorTrendChart from "./charts/InvestorTrendChart";
 import TopMoversChart from "./charts/TopMoversChart";
 import MonthlyTrendChart from "./charts/MonthlyTrendChart";
 import CategoryTimelineChart from "./charts/CategoryTimelineChart";
+import TradingVolumeTab from "./TradingVolumeTab";
 import {
   Card,
   CardContent,
@@ -51,16 +52,18 @@ function fundGroupOf(name: string): string {
   const w = name.trim().split(" ").filter(Boolean);
   return ((w[0] || "") + (w[1] ? " " + w[1] : "")).toUpperCase();
 }
+
 function groupInvestorsByFund(
   data: MonthlyInvestorData[]
 ): MonthlyInvestorData[] {
   const map = new Map<string, MonthlyInvestorData>();
+
   for (const inv of data) {
     const fg = inv.fundGroup || fundGroupOf(inv.name);
     if (!map.has(fg)) {
       map.set(fg, {
-        name: fg,
-        category: inv.category,
+        name: fg, // temp name for groups; will be replaced for singletons
+        category: inv.category ?? null,
         description: "Grouped fund",
         fundGroup: fg,
         monthlyShares: {},
@@ -73,7 +76,21 @@ function groupInvestorsByFund(
       grp.monthlyShares[m] = (grp.monthlyShares[m] || 0) + inv.monthlyShares[m];
     }
   }
-  return Array.from(map.values());
+
+  // If a "group" has only one member, return that member as-is (full name),
+  // not a club row with a shortened fundGroup label.
+  return Array.from(map.values()).map((grp) => {
+    const members = grp.individualInvestors ?? [];
+    if (members.length <= 1) {
+      const original = members[0] ?? grp; // safety
+      return {
+        ...original,
+        fundGroup: grp.fundGroup, // keep fundGroup as metadata
+        individualInvestors: undefined, // not a real group
+      };
+    }
+    return grp; // real group (≥2) keeps the group label
+  });
 }
 
 export default function Dashboard() {
@@ -200,7 +217,7 @@ export default function Dashboard() {
         <TabsList className="overflow-x-auto whitespace-nowrap">
           <TabsTrigger value="table">Data Table</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
-          <TabsTrigger value="trends">Monthly Trends</TabsTrigger>
+          <TabsTrigger value="volume">Trading Volume</TabsTrigger>
         </TabsList>
 
         <TabsContent value="table" className="min-h-0">
@@ -239,7 +256,19 @@ export default function Dashboard() {
               <div className="grid gap-4 lg:grid-cols-3">
                 <CategoryDistribution investors={legacyInvestors} />
               </div>
+              {/* Keep category math unchanged by fund grouping */}
               <CategoryTimelineChart
+                data={monthlyData} // ← always ungrouped data
+                availableMonths={availableMonths}
+                categories={
+                  Array.from(
+                    new Set(monthlyData.map((i) => i.category).filter(Boolean)) // drop nulls
+                  ) as string[]
+                }
+              />
+
+              {/* Added: show MonthlyTrendChart below the other analytics charts */}
+              <MonthlyTrendChart
                 data={displayData}
                 availableMonths={availableMonths}
                 categories={categories}
@@ -247,14 +276,7 @@ export default function Dashboard() {
             </>
           )}
         </TabsContent>
-
-        <TabsContent value="trends">
-          <MonthlyTrendChart
-            data={displayData}
-            availableMonths={availableMonths}
-            categories={categories}
-          />
-        </TabsContent>
+        <TradingVolumeTab />
       </Tabs>
     </div>
   );
