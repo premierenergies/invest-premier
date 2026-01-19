@@ -25,6 +25,8 @@ import TopMoversChart from "./charts/TopMoversChart";
 import MonthlyTrendChart from "./charts/MonthlyTrendChart";
 import CategoryTimelineChart from "./charts/CategoryTimelineChart";
 import TradingVolumeTab from "./TradingVolumeTab";
+import ComparisonTableTab from "./ComparisonTableTab";
+
 import {
   Card,
   CardContent,
@@ -218,6 +220,7 @@ export default function Dashboard() {
           <TabsTrigger value="table">Data Table</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
           <TabsTrigger value="volume">Trading Volume</TabsTrigger>
+          <TabsTrigger value="comparison">Comparison Table</TabsTrigger>
         </TabsList>
 
         <TabsContent value="table" className="min-h-0">
@@ -277,6 +280,11 @@ export default function Dashboard() {
           )}
         </TabsContent>
         <TradingVolumeTab />
+        <ComparisonTableTab
+          data={displayData}
+          availableMonths={availableMonths}
+          categories={categories}
+        />
       </Tabs>
     </div>
   );

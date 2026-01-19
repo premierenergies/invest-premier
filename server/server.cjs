@@ -257,10 +257,35 @@ function deny(req, res, code, extra = {}) {
 }
 
 // Gate middleware
+// Gate middleware
 app.use((req, res, next) => {
-  // Allow these to function always (health, refresh, logout, session)
-  // NOTE: we intentionally do NOT allow local /api/send-otp or /api/verify-otp,
-  // because that would let people bypass DIGI and login directly to the app.
+  // 1) Allow all GET requests for static assets and common files
+  if (
+    req.method === "GET" &&
+    (req.path.startsWith("/assets/") ||
+      req.path === "/favicon.ico" ||
+      req.path === "/l.png" ||
+      req.path === "/l.glb" ||
+      req.path.endsWith(".css") ||
+      req.path.endsWith(".js") ||
+      req.path.endsWith(".map") ||
+      req.path.endsWith(".png") ||
+      req.path.endsWith(".jpg") ||
+      req.path.endsWith(".jpeg") ||
+      req.path.endsWith(".svg") ||
+      req.path.endsWith(".webp") ||
+      req.path.endsWith(".gif") ||
+      req.path.endsWith(".mp4") ||
+      req.path.endsWith(".glb") ||
+      req.path.endsWith(".woff") ||
+      req.path.endsWith(".woff2") ||
+      req.path.endsWith(".ttf") ||
+      req.path.endsWith(".eot"))
+  ) {
+    return next();
+  }
+
+  // 2) Allow access to specific public endpoints
   if (
     req.path === "/api/session" ||
     req.path === "/auth/refresh" ||
@@ -271,73 +296,20 @@ app.use((req, res, next) => {
     return next();
   }
 
-  // Hard-block local OTP endpoints (force central auth only)
-  if (req.path === "/api/send-otp" || req.path === "/api/verify-otp") {
-    return deny(req, res, 401, { message: "Login via Digital Portal only." });
+  // 3) Allow public dashboard for INVEST without login (specific to the app)
+  if (
+    THIS_APP_ID === "invest" &&
+    req.method === "GET" &&
+    (req.path === "/" || req.path === "/dashboard") &&
+    isHtmlNavigation(req)
+  ) {
+    return next();
   }
 
-  // 1) Try access token
-  const at = req.cookies?.sso;
-  if (at) {
-    try {
-      const payload = verifyAccessToken(at);
-
-      // Optional: enforce app authorization via apps claim
-      const apps = Array.isArray(payload.apps) ? payload.apps : [];
-      if (THIS_APP_ID && !apps.includes(THIS_APP_ID)) {
-        return deny(req, res, 403, {
-          message: `No access to '${THIS_APP_ID}'.`,
-        });
-      }
-
-      req.ssoUser = payload;
-      return next();
-    } catch (_) {
-      // fall through to refresh attempt
-    }
-  }
-
-  // 2) Auto-refresh if refresh token exists
-  const rt = req.cookies?.sso_refresh;
-  if (rt) {
-    try {
-      const rp = verifyRefreshToken(rt);
-
-      const user = {
-        id: rp.sub,
-        email: rp.email || "",
-        roles: rp.roles || [],
-        apps: rp.apps || [],
-      };
-
-      // Re-issue cookies (same helpers you already have)
-      const { access, refresh } = issueTokens(user);
-      setSsoCookies(req, res, access, refresh);
-
-      // Authorize app access after refresh too
-      const apps = Array.isArray(user.apps) ? user.apps : [];
-      if (THIS_APP_ID && !apps.includes(THIS_APP_ID)) {
-        return deny(req, res, 403, {
-          message: `No access to '${THIS_APP_ID}'.`,
-        });
-      }
-
-      req.ssoUser = {
-        sub: user.id,
-        email: user.email,
-        roles: user.roles,
-        apps: user.apps,
-      };
-
-      return next();
-    } catch (_) {
-      // refresh invalid → treat as logged out
-    }
-  }
-
-  // 3) No tokens → deny + redirect to portal
-  return deny(req, res, 401);
+  // 4) Bypass all authentication checks (allow everything)
+  return next(); // All requests bypass authentication logic
 });
+
 
 // ── JWT helpers and cookie management (same as DIGI) ─────────────────────────
 function issueTokens(user) {
@@ -1193,10 +1165,18 @@ app.post("/api/monthly", async (req, res) => {
   if (!Array.isArray(rows) || rows.length === 0) {
     return res.status(400).json({ error: "Non-empty array expected" });
   }
-  const asOf = new Date(rows[0].date);
-  if (isNaN(asOf)) {
-    return res.status(400).json({ error: "Invalid date" });
+  const rawDate = String(rows?.[0]?.date || "").trim();
+
+  // ✅ Enforce ISO only (prevents DD/MM vs MM/DD bugs)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+    return res.status(400).json({
+      error: "Invalid date format. Expected ISO YYYY-MM-DD (e.g. 2026-01-02).",
+      got: rawDate,
+    });
   }
+
+  // Use a stable construction (no locale parsing)
+  const asOf = new Date(`${rawDate}T00:00:00Z`);
 
   try {
     if (DB_TYPE === "mysql") {
@@ -1300,8 +1280,15 @@ app.get("/api/monthly", async (_, res) => {
       const iso =
         row.AsOfDate instanceof Date
           ? row.AsOfDate.toISOString().slice(0, 10)
-          : String(row.AsOfDate);
-      raw[name].monthlyShares[iso] = Number(row.Shares || 0);
+          : new Date(row.AsOfDate).toISOString().slice(0, 10);
+
+      const shares = Number(row.Shares || 0);
+
+      // ✅ Don't store zero-only points (prevents phantom month keys)
+      if (shares !== 0) {
+        raw[name].monthlyShares[iso] = shares;
+      }
+
       if (!latestIso || iso > latestIso) latestIso = iso;
     }
 

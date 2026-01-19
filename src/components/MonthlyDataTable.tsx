@@ -279,10 +279,37 @@ export default function MonthlyDataTable({
      Derived lists
      ──────────────────────────────────────────────────────────────── */
 
-  const monthsAsc = useMemo(
-    () => [...availableMonths].sort(),
-    [availableMonths]
-  );
+  // IMPORTANT: derive months from actual dataset keys (prevents phantom columns)
+// IMPORTANT: derive months from actual dataset keys (prevents phantom columns)
+const monthsAsc = useMemo(() => {
+  const s = new Set<string>();
+
+  for (const inv of data || []) {
+    Object.keys(inv.monthlyShares || {}).forEach((k) => s.add(k));
+
+    for (const ind of inv.individualInvestors || []) {
+      Object.keys(ind.monthlyShares || {}).forEach((k) => s.add(k));
+    }
+  }
+
+  const all = Array.from(s).sort(); // ISO yyyy-mm-dd sorts correctly
+
+  // ✅ Drop "phantom" months: months where nobody has a non-zero value
+  const hasAnyNonZero = (k: string) => {
+    for (const inv of data || []) {
+      if ((inv.monthlyShares?.[k] || 0) !== 0) return true;
+
+      for (const ind of inv.individualInvestors || []) {
+        if ((ind.monthlyShares?.[k] || 0) !== 0) return true;
+      }
+    }
+    return false;
+  };
+
+  return all.filter(hasAnyNonZero);
+}, [data]);
+
+
   const hasMonths = monthsAsc.length > 0;
   const latestIso = hasMonths ? monthsAsc[monthsAsc.length - 1] : undefined;
   const latestDate = latestIso ? new Date(latestIso) : undefined;
@@ -316,8 +343,10 @@ export default function MonthlyDataTable({
   const filteredBase = useMemo(() => {
     return data.filter((investor) => {
       // Pre-filter: at least one month has >20k
+      if (monthsAsc.length === 0) return false;
+
       const maxShares = Math.max(
-        ...availableMonths.map((m) => investor.monthlyShares[m] || 0)
+        ...monthsAsc.map((m) => investor.monthlyShares[m] || 0)
       );
       if (maxShares <= 20000) return false;
 
@@ -337,8 +366,10 @@ export default function MonthlyDataTable({
         return false;
       }
 
-      const latestMonth = availableMonths[availableMonths.length - 1];
-      const latestShares = investor.monthlyShares[latestMonth] || 0;
+      const latestMonth = latestIso; // from derived monthsAsc
+      const latestShares = latestMonth
+        ? investor.monthlyShares[latestMonth] || 0
+        : 0;
 
       if (minSharesFilter && latestShares < parseInt(minSharesFilter))
         return false;
@@ -349,7 +380,8 @@ export default function MonthlyDataTable({
     });
   }, [
     data,
-    availableMonths,
+    monthsAsc,
+    latestIso,
     searchQuery,
     selectedCategory,
     minSharesFilter,
@@ -367,16 +399,17 @@ export default function MonthlyDataTable({
       } else if (sortBy === "category") {
         av = a.category;
         bv = b.category;
-      } else if (availableMonths.includes(sortBy)) {
+      } else if (monthsAsc.includes(sortBy)) {
         av = a.monthlyShares[sortBy] || 0;
         bv = b.monthlyShares[sortBy] || 0;
       }
+
       if (av < bv) return sortOrder === "asc" ? -1 : 1;
       if (av > bv) return sortOrder === "asc" ? 1 : -1;
       return 0;
     });
     return arr;
-  }, [filteredBase, sortBy, sortOrder, availableMonths]);
+  }, [filteredBase, sortBy, sortOrder, monthsAsc]);
 
   function getRangeBoundsKeys(): { startKey?: string; endKey?: string } {
     if (!hasMonths || !latestDate || !latestIso)
@@ -482,16 +515,21 @@ export default function MonthlyDataTable({
   ): string => {
     const currentMonth = monthsForDisplay[monthIndex];
     const current = investor.monthlyShares[currentMonth] || 0;
-    if (current === 0) return "";
 
-    // No previous column to compare → blue (order-agnostic)
+    // First visible column: no previous month to compare.
+    // Keep previous behavior: if zero, no color; else blue.
     if (monthIndex === 0) {
+      if (current === 0) return "";
       const op = getGradientIntensity(0);
       return `rgba(59, 130, 246, ${op})`;
     }
 
     const prevMonth = monthsForDisplay[monthIndex - 1];
     const prev = investor.monthlyShares[prevMonth] || 0;
+
+    // Preserve your old "don't color zeros" behavior ONLY for 0 → 0
+    if (current === 0 && prev === 0) return "";
+
     const delta = current - prev;
     const op = getGradientIntensity(Math.abs(delta));
 

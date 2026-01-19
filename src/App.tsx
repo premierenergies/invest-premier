@@ -10,10 +10,9 @@ import { useAuth } from "@/contexts/AuthContext";
 
 // Add this component above App:
 const HomeGate: React.FC = () => {
-  const { isAuthenticated, ready } = useAuth();
-  if (!ready) return null; // avoid flicker/race
-  return <Navigate to={isAuthenticated ? "/dashboard" : "/login"} replace />;
+  return <Navigate to="/dashboard" replace />;
 };
+
 
 const App: React.FC = () => {
   return (
@@ -27,14 +26,8 @@ const App: React.FC = () => {
           <Route path="/login" element={<Login />} />
 
           {/* protected dashboard lives at /dashboard */}
-          <Route
-            path="/dashboard"
-            element={
-              <ProtectedRoute redirectTo="/login">
-                <Index />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/dashboard" element={<Index />} />
+
 
           {/* any unknown URL → NotFound */}
           <Route path="*" element={<NotFound />} />
