@@ -83,13 +83,9 @@ export const filterInvestorsByConditions = (
 };
 
 // Extract fund group from investor name (first 2 words)
-export const getFundGroup = (name: string): string => {
-  const words = name.trim().split(/\s+/);
-  if (words.length >= 2) {
-    return `${words[0]} ${words[1]}`.toUpperCase();
-  }
-  return words[0]?.toUpperCase() || "UNKNOWN";
-};
+export const getFundGroup = (name: string): string =>
+  (name || "").trim().toUpperCase(); // full name only (no first-2-words grouping)
+
 
 // Merge investors by fund group (first 2 words)
 export const mergeInvestorsByFundGroup = (investors: Investor[]): Investor[] => {

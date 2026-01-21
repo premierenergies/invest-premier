@@ -1,4 +1,3 @@
-
 export interface Investor {
   name: string;
   boughtOn18: number;
@@ -16,9 +15,13 @@ export interface MonthlyInvestorData {
   name: string;
   category: string;
   description: string;
-  monthlyShares: Record<string, number>; // Key: YYYY-MM, Value: shares
+  monthlyShares: Record<string, number>; // YYYY-MM-DD
   fundGroup?: string;
   individualInvestors?: MonthlyInvestorData[]; // For grouped funds
+  pan?: string | null;
+  dpid?: string | null;
+  clientId?: string | null;
+  percentToEquity?: number | null;
 }
 
 export interface MonthlyDataFile {
@@ -32,15 +35,15 @@ export interface InvestorComparison {
   name: string;
   month1: Investor;
   month2: Investor;
-  behaviorType: 'buyer' | 'seller' | 'holder' | 'new' | 'exited';
+  behaviorType: "buyer" | "seller" | "holder" | "new" | "exited";
   trendChange: number; // Change in net position between dates
   fundGroup: string;
 }
 
 export interface FilterOptions {
   category: string | null;
-  sortBy: 'name' | 'boughtOn18' | 'soldOn25' | 'percentToEquity' | 'netChange';
-  sortOrder: 'asc' | 'desc';
+  sortBy: "name" | "boughtOn18" | "soldOn25" | "percentToEquity" | "netChange";
+  sortOrder: "asc" | "desc";
   searchQuery: string;
   fundGroup: string | null;
   minShares?: number;

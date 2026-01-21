@@ -8,7 +8,6 @@ import {
   getUniqueCategories,
   getUniqueFundGroups,
 } from "@/utils/dataUtils";
-import { getUniqueInvestorCount } from "@/utils/investorUtils";
 import {
   Investor,
   FilterOptions,
@@ -50,54 +49,8 @@ function apiBase(): string {
 }
 const API = `${apiBase()}/api`;
 
-function fundGroupOf(name: string): string {
-  const w = name.trim().split(" ").filter(Boolean);
-  return ((w[0] || "") + (w[1] ? " " + w[1] : "")).toUpperCase();
-}
-
-function groupInvestorsByFund(
-  data: MonthlyInvestorData[]
-): MonthlyInvestorData[] {
-  const map = new Map<string, MonthlyInvestorData>();
-
-  for (const inv of data) {
-    const fg = inv.fundGroup || fundGroupOf(inv.name);
-    if (!map.has(fg)) {
-      map.set(fg, {
-        name: fg, // temp name for groups; will be replaced for singletons
-        category: inv.category ?? null,
-        description: "Grouped fund",
-        fundGroup: fg,
-        monthlyShares: {},
-        individualInvestors: [],
-      });
-    }
-    const grp = map.get(fg)!;
-    grp.individualInvestors!.push(inv);
-    for (const m in inv.monthlyShares) {
-      grp.monthlyShares[m] = (grp.monthlyShares[m] || 0) + inv.monthlyShares[m];
-    }
-  }
-
-  // If a "group" has only one member, return that member as-is (full name),
-  // not a club row with a shortened fundGroup label.
-  return Array.from(map.values()).map((grp) => {
-    const members = grp.individualInvestors ?? [];
-    if (members.length <= 1) {
-      const original = members[0] ?? grp; // safety
-      return {
-        ...original,
-        fundGroup: grp.fundGroup, // keep fundGroup as metadata
-        individualInvestors: undefined, // not a real group
-      };
-    }
-    return grp; // real group (≥2) keeps the group label
-  });
-}
-
 export default function Dashboard() {
   const [monthlyData, setMonthlyData] = useState<MonthlyInvestorData[]>([]);
-  const [isGrouped, setIsGrouped] = useState(true);
 
   const load = () =>
     axios
@@ -106,10 +59,7 @@ export default function Dashboard() {
       .catch((e) => console.error("Error fetching monthly:", e));
   useEffect(load, []);
 
-  const displayData = useMemo(
-    () => (isGrouped ? groupInvestorsByFund(monthlyData) : monthlyData),
-    [monthlyData, isGrouped]
-  );
+  const displayData = monthlyData; // server is source of truth
 
   const availableMonths = useMemo(
     () =>
@@ -185,21 +135,10 @@ export default function Dashboard() {
         <div>
           <h1 className="text-3xl font-bold">Investor Analytics Dashboard</h1>
           <p className="text-muted-foreground">
-            Monthly analysis across {availableMonths.length} months (
-            {getUniqueInvestorCount(displayData)} unique investors
-            {isGrouped ? "/fund groups" : ""})
+            Monthly analysis across {availableMonths.length} months
           </p>
         </div>
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-          <div className="flex items-center space-x-2">
-            <Switch
-              id="group-investors"
-              checked={isGrouped}
-              onCheckedChange={(checked) => setIsGrouped(Boolean(checked))}
-            />
-
-            <Label htmlFor="group-investors">Group by fund</Label>
-          </div>
           <div className="w-full sm:w-auto">
             <MonthlyFileUpload onDataLoaded={load} />
           </div>
@@ -223,15 +162,12 @@ export default function Dashboard() {
           <TabsTrigger value="comparison">Comparison Table</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="table" className="min-h-0">
-          <div className="overflow-visible min-h-0">
-            <MonthlyDataTable
-              key={isGrouped ? "grouped" : "ungrouped"}
-              data={displayData}
-              availableMonths={availableMonths}
-              categories={categories}
-            />
-          </div>
+        <TabsContent value="table" className="space-y-6">
+          <MonthlyDataTable
+            data={displayData}
+            availableMonths={availableMonths}
+            categories={categories.filter(Boolean) as string[]}
+          />
         </TabsContent>
 
         <TabsContent value="analytics" className="space-y-6">

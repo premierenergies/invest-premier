@@ -35,108 +35,6 @@ interface MonthlyDataTableProps {
 }
 
 const IPO_START_ISO = "2024-09-03";
-/* ──────────────────────────────────────────────────────────────────
-   Dialog: fund breakdown (simple table, sticky header only)
-   ────────────────────────────────────────────────────────────────── */
-function FundBreakdownDialog({ investor }: { investor: MonthlyInvestorData }) {
-  const [open, setOpen] = useState(false);
-
-  const headerMonthKeys = useMemo(() => {
-    const s = new Set<string>();
-    for (const ind of investor.individualInvestors ?? []) {
-      Object.keys(ind.monthlyShares || {}).forEach((k) => s.add(k));
-    }
-    return Array.from(s).sort();
-  }, [investor.individualInvestors]);
-
-  const displayLabels = useMemo(
-    () => getMonthDisplayLabels(headerMonthKeys),
-    [headerMonthKeys]
-  );
-
-  if (
-    !investor.individualInvestors ||
-    investor.individualInvestors.length <= 1
-  ) {
-    return null;
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 w-6 p-0"
-          onClick={(e) => e.stopPropagation()}
-          title="View fund breakdown"
-        >
-          <Eye className="h-3 w-3" />
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-6xl max-h-[80vh] overflow-visible font-sans">
-        <DialogHeader>
-          <DialogTitle>{investor.name} — Individual Investors</DialogTitle>
-          <DialogDescription>
-            Breakdown of {investor.individualInvestors.length} individual
-            investors in this fund group
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="mt-4 max-h-[60vh] overflow-auto">
-          <table className="w-full min-w-max table-fixed border-separate border-spacing-0 text-sm font-sans">
-            <thead>
-              <tr>
-                <th className="sticky top-0 z-50 bg-white text-left px-4 py-2 border border-gray-200">
-                  Investor Name
-                </th>
-                <th className="sticky top-0 z-50 bg-white text-left px-4 py-2 border border-gray-200">
-                  Category
-                </th>
-
-                {displayLabels.map((label, idx) => (
-                  <th
-                    key={headerMonthKeys[idx]}
-                    className="sticky top-0 z-50 bg-white text-right px-4 py-2 border border-gray-200"
-                  >
-                    {label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {investor.individualInvestors.map((individual, idx) => {
-                return (
-                  <tr key={idx}>
-                    <td className="px-4 py-2 border border-gray-200 font-medium">
-                      {individual.name}
-                    </td>
-                    <td className="px-4 py-2 border border-gray-200 min-w-[120px]">
-                      <Badge variant="outline">
-                        {individual.category || "—"}
-                      </Badge>
-                    </td>
-
-                    {headerMonthKeys.map((month) => (
-                      <td
-                        key={month}
-                        className="px-4 py-2 border border-gray-200 text-right"
-                      >
-                        {(
-                          individual.monthlyShares[month] || 0
-                        ).toLocaleString()}
-                      </td>
-                    ))}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 type RankingMode = "none" | "buyers" | "sellers";
 type TimeRangeKey =
@@ -280,35 +178,34 @@ export default function MonthlyDataTable({
      ──────────────────────────────────────────────────────────────── */
 
   // IMPORTANT: derive months from actual dataset keys (prevents phantom columns)
-// IMPORTANT: derive months from actual dataset keys (prevents phantom columns)
-const monthsAsc = useMemo(() => {
-  const s = new Set<string>();
+  // IMPORTANT: derive months from actual dataset keys (prevents phantom columns)
+  const monthsAsc = useMemo(() => {
+    const s = new Set<string>();
 
-  for (const inv of data || []) {
-    Object.keys(inv.monthlyShares || {}).forEach((k) => s.add(k));
-
-    for (const ind of inv.individualInvestors || []) {
-      Object.keys(ind.monthlyShares || {}).forEach((k) => s.add(k));
-    }
-  }
-
-  const all = Array.from(s).sort(); // ISO yyyy-mm-dd sorts correctly
-
-  // ✅ Drop "phantom" months: months where nobody has a non-zero value
-  const hasAnyNonZero = (k: string) => {
     for (const inv of data || []) {
-      if ((inv.monthlyShares?.[k] || 0) !== 0) return true;
+      Object.keys(inv.monthlyShares || {}).forEach((k) => s.add(k));
 
       for (const ind of inv.individualInvestors || []) {
-        if ((ind.monthlyShares?.[k] || 0) !== 0) return true;
+        Object.keys(ind.monthlyShares || {}).forEach((k) => s.add(k));
       }
     }
-    return false;
-  };
 
-  return all.filter(hasAnyNonZero);
-}, [data]);
+    const all = Array.from(s).sort(); // ISO yyyy-mm-dd sorts correctly
 
+    // ✅ Drop "phantom" months: months where nobody has a non-zero value
+    const hasAnyNonZero = (k: string) => {
+      for (const inv of data || []) {
+        if ((inv.monthlyShares?.[k] || 0) !== 0) return true;
+
+        for (const ind of inv.individualInvestors || []) {
+          if ((ind.monthlyShares?.[k] || 0) !== 0) return true;
+        }
+      }
+      return false;
+    };
+
+    return all.filter(hasAnyNonZero);
+  }, [data]);
 
   const hasMonths = monthsAsc.length > 0;
   const latestIso = hasMonths ? monthsAsc[monthsAsc.length - 1] : undefined;
@@ -352,11 +249,14 @@ const monthsAsc = useMemo(() => {
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
+        // CMD+F: const nameMatch = investor.name.toLowerCase().includes(q);
         const nameMatch = investor.name.toLowerCase().includes(q);
         const descMatch = investor.description
           ? investor.description.toLowerCase().includes(q)
           : false;
-        if (!nameMatch && !descMatch) return false;
+        const panMatch = (investor.pan || "").toLowerCase().includes(q);
+
+        if (!nameMatch && !descMatch && !panMatch) return false;
       }
 
       if (
@@ -861,7 +761,7 @@ const monthsAsc = useMemo(() => {
                 className="sticky top-0 left-0 z-50 bg-white px-3 py-2 text-left border border-gray-200 whitespace-nowrap cursor-pointer"
                 onClick={() => handleSort("name")}
               >
-                Fund Group / Investor {getSortIcon("name")}
+                Investor {getSortIcon("name")}
               </th>
 
               <th
@@ -907,38 +807,23 @@ const monthsAsc = useMemo(() => {
                 // full name if not clubbed
 
                 return (
-                  <tr key={inv.name}>
+                  <tr key={inv.pan || inv.name}>
                     <th
                       scope="row"
                       className="sticky left-0 z-30 bg-white px-3 py-2 text-left border border-gray-200 font-medium"
                     >
                       <div className="flex items-center gap-1.5">
-                        <FundBreakdownDialog investor={inv} />
-
-                        {/* Hover on the name */}
-                        <EntitiesHover
-                          investor={inv}
-                          trigger={
-                            <span
-                              title={inv.name}
-                              className="underline decoration-dotted underline-offset-4 cursor-help whitespace-normal break-words"
-                            >
-                              {label}
-                            </span>
-                          }
-                        />
-
-                        {/* Count only for clubbed groups */}
-                        {isGroup && (
-                          <EntitiesHover
-                            investor={inv}
-                            trigger={
-                              <span className="ml-2 text-xs text-muted-foreground cursor-help">
-                                ({inv.individualInvestors!.length} entities)
-                              </span>
-                            }
-                          />
-                        )}
+                        <span
+                          title={inv.name}
+                          className="whitespace-normal break-words"
+                        >
+                          {inv.name}
+                        </span>
+                        {inv.pan ? (
+                          <div className="text-[11px] text-muted-foreground mt-0.5">
+                            PAN: {inv.pan}
+                          </div>
+                        ) : null}
                       </div>
                     </th>
 

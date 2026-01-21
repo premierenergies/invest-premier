@@ -211,8 +211,10 @@ export default function TradingVolumeTab() {
         try {
           const ok = await refreshToday();
           if (ok) sessionStorage.setItem(key, "1");
-        } finally {
-          // no-op; we only mark done on success above
+        } catch (e) {
+          console.error("Auto record failed:", e);
+          // prevent repeated hammering; user can click "Record Today"
+          sessionStorage.setItem(key, "1");
         }
       })();
     }

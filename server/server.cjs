@@ -1,6 +1,7 @@
 // server/server.cjs
-require("dotenv").config();
 const path = require("path");
+// CMD+F: DOTENV_PATH_FIX
+require("dotenv").config();
 const fs = require("fs");
 const https = require("https");
 const express = require("express");
@@ -65,10 +66,11 @@ try {
 // [YF-INSTANTIATE]
 const YahooFinance = require("yahoo-finance2").default;
 const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
+let lastYahooFetch = 0;
+const YAHOO_COOLDOWN_MS = 60_000; // 1 minute
 
 const cron = require("node-cron");
 
-require("dotenv").config();
 // ── ENV helpers & safe file readers (align with DIGI) ─────────────────────────
 function mustGetEnv(name) {
   const v = process.env[name];
@@ -158,15 +160,9 @@ async function sendEmail(to, subject, html) {
 // ── END GRAPH CLIENT BLOCK ───────────────────────────────────────────────────
 
 // choose driver
-const DB_TYPE = process.env.DB_TYPE === "mysql" ? "mysql" : "mssql";
-
-let mssql, mysql, sql, pool;
-if (DB_TYPE === "mysql") {
-  mysql = require("mssql");
-} else {
-  mssql = require("mssql");
-  sql = mssql;
-}
+// MSSQL-only
+const sql = require("mssql");
+let pool;
 
 /* ------------------------------------------------------------------ */
 /* Middleware                                                         */
@@ -310,7 +306,6 @@ app.use((req, res, next) => {
   return next(); // All requests bypass authentication logic
 });
 
-
 // ── JWT helpers and cookie management (same as DIGI) ─────────────────────────
 function issueTokens(user) {
   const access = jwt.sign(
@@ -354,7 +349,13 @@ function setSsoCookies(req, res, access, refresh) {
   const shouldSetDomain =
     normalizedDomain &&
     (host === normalizedDomain || host.endsWith(`.${normalizedDomain}`));
-  const base = { httpOnly: true, secure: true, sameSite: "none" };
+  const isLocalhost =
+    req.hostname === "localhost" || req.hostname === "127.0.0.1";
+  const base = {
+    httpOnly: true,
+    secure: !isLocalhost,
+    sameSite: isLocalhost ? "lax" : "none",
+  };
 
   res.cookie("sso", access, {
     ...base,
@@ -381,12 +382,21 @@ function clearSsoCookies(res) {
 /* ------------------------------------------------------------------ */
 /* Database Configuration                                             */
 /* ------------------------------------------------------------------ */
+// CMD+F: EFFECTIVE_MSSQL_DB
+const EFFECTIVE_MSSQL_DB = (process.env.MSSQL_DB || "investdev").trim();
+console.log(
+  "🧩 EFFECTIVE MSSQL_DB =",
+  EFFECTIVE_MSSQL_DB,
+  "| env MSSQL_DB =",
+  process.env.MSSQL_DB
+);
+
 const mssqlConfig = {
   user: process.env.MSSQL_USER || "PEL_DB",
   password: process.env.MSSQL_PASSWORD || "Pel@0184",
   server: process.env.MSSQL_SERVER || "10.0.50.17",
   port: Number(process.env.MSSQL_PORT) || 1433,
-  database: process.env.MSSQL_DB || "invest",
+  database: EFFECTIVE_MSSQL_DB,
   requestTimeout: 60000,
   pool: { max: 10, min: 0, idleTimeoutMillis: 30000 },
   options: {
@@ -397,28 +407,20 @@ const mssqlConfig = {
 };
 
 // 1) Add this near the top, alongside your other DB configs:
+// CMD+F: AUTH_DB_CONFIG_SPLIT
 const authDbConfig = {
-  user: process.env.MSSQL_USER || "PEL_DB",
-  password: process.env.MSSQL_PASSWORD || "Pel@0184",
-  server: process.env.MSSQL_SERVER || "10.0.50.17",
-  port: Number(process.env.MSSQL_PORT) || 1433,
-  database: "SPOT", // ← auth database
+  user: process.env.AUTH_MSSQL_USER || process.env.MSSQL_USER || "PEL_DB",
+  password:
+    process.env.AUTH_MSSQL_PASSWORD || process.env.MSSQL_PASSWORD || "Pel@0184",
+  server:
+    process.env.AUTH_MSSQL_SERVER || process.env.MSSQL_SERVER || "10.0.50.17",
+  port: Number(process.env.AUTH_MSSQL_PORT || process.env.MSSQL_PORT || 1433),
+  database: (process.env.AUTH_MSSQL_DB || "SART").trim(), // EMP + Login live here
   options: {
     trustServerCertificate: true,
     encrypt: false,
     connectionTimeout: 60000,
   },
-};
-
-const mysqlConfig = {
-  host: process.env.MYSQL_HOST || "localhost",
-  port: Number(process.env.MYSQL_PORT) || 3306,
-  user: process.env.MYSQL_USER || "root",
-  password: process.env.MYSQL_PASSWORD || "Singhcottage@1729",
-  database: process.env.MYSQL_DB || "INVEST",
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
 };
 
 // ── ACCESS LIST & EMAIL NORMALISER ────────────────────────────────────────────
@@ -487,6 +489,43 @@ function formatDateIST(d) {
   }).format(d);
 }
 
+const IST_TZ = "Asia/Kolkata";
+
+function isoInTz(d, tz = IST_TZ) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const y = parts.find((p) => p.type === "year")?.value;
+  const m = parts.find((p) => p.type === "month")?.value;
+  const day = parts.find((p) => p.type === "day")?.value;
+  return `${y}-${m}-${day}`; // YYYY-MM-DD
+}
+
+function todayIsoIST() {
+  return isoInTz(new Date(), IST_TZ);
+}
+
+async function getTradingRow(symbol, tradeDateIso) {
+  const dObj = new Date(`${tradeDateIso}T00:00:00Z`);
+  const r = await pool
+    .request()
+    .input("Symbol", sql.NVarChar(32), symbol)
+    .input("D", sql.Date, dObj).query(`
+      SELECT TOP 1
+        Symbol,
+        TradeDate,
+        [Close] AS [Close],
+        Volume,
+        ValueTraded
+      FROM dbo.TradingVolume
+      WHERE Symbol = @Symbol AND TradeDate = @D
+    `);
+  return r.recordset?.[0] || null;
+}
+
 function previousFriday(fromDate = new Date()) {
   // Always returns the previous Friday (if today is Friday, returns the Friday a week ago)
   const d = new Date(fromDate);
@@ -544,133 +583,128 @@ async function sendWeeklyShareholderRequest(fridayDate) {
 /* Initialize Pool & Ensure Tables                                    */
 /* ------------------------------------------------------------------ */
 async function initDb() {
-  if (DB_TYPE === "mysql") {
-    // MySQL
-    pool = await mysql.createPool(mysqlConfig);
-    console.log(`🚀 MySQL connected → ${mysqlConfig.database}`);
+  pool = await sql.connect(mssqlConfig);
+  console.log(`🚀 MSSQL connected → ${mssqlConfig.database}`);
+  const dbNameRow = await pool.request().query("SELECT DB_NAME() AS db");
+  console.log("🗄️ Connected DB_NAME() →", dbNameRow.recordset?.[0]?.db);
 
-    // create tables if not exists
-    await pool.execute(`
-      CREATE TABLE IF NOT EXISTS Investors (
-        InvestorID    INT AUTO_INCREMENT PRIMARY KEY,
-        Name          VARCHAR(255) NOT NULL UNIQUE,
-        Bought        DOUBLE NOT NULL,
-        Sold          DOUBLE NOT NULL,
-        PercentEquity DOUBLE NOT NULL,
-        Category      VARCHAR(100) NOT NULL,
-        NetChange     DOUBLE NOT NULL,
-        FundGroup     VARCHAR(100) NOT NULL,
-        StartPosition DOUBLE NULL,
-        EndPosition   DOUBLE NULL
-      );
-    `);
-    await pool.execute(`
-      CREATE TABLE IF NOT EXISTS MonthlyRecords (
-        RecordID  INT AUTO_INCREMENT PRIMARY KEY,
-        AsOfDate  DATE       NOT NULL,
-        Name      VARCHAR(255) NOT NULL,
-        Category  VARCHAR(100) NULL,
-        Shares    DOUBLE     NOT NULL
-      );
-    `);
-    console.log("✅ MySQL tables ensured (Investors, MonthlyRecords)");
-    // --- NEW: TradingVolume table (MySQL) ---
-    await pool.execute(`
-      CREATE TABLE IF NOT EXISTS TradingVolume (
-        Id           INT AUTO_INCREMENT PRIMARY KEY,
-        Symbol       VARCHAR(32) NOT NULL,
-        TradeDate    DATE        NOT NULL,
-        Close        DOUBLE      NOT NULL,
-        Volume       BIGINT      NOT NULL,
-        ValueTraded  DOUBLE      NOT NULL,
-        UNIQUE KEY UX_TradingVolume_Symbol_Date (Symbol, TradeDate)
-      );
-    `);
-    console.log("✅ TradingVolume table ensured (MySQL)");
-  } else {
-    // MSSQL
-    pool = await mssql.connect(mssqlConfig);
-    console.log(`🚀 MSSQL connected → ${mssqlConfig.database}`);
+  // Investors
+  await pool.request().query(`
+    IF NOT EXISTS (
+      SELECT 1 FROM sys.objects
+      WHERE object_id = OBJECT_ID(N'dbo.Investors') AND type = 'U'
+    )
+    CREATE TABLE dbo.Investors (
+      InvestorID    INT IDENTITY PRIMARY KEY,
+      Name          NVARCHAR(255) NOT NULL UNIQUE,
+      Bought        FLOAT NOT NULL,
+      Sold          FLOAT NOT NULL,
+      PercentEquity FLOAT NOT NULL,
+      Category      NVARCHAR(100) NOT NULL,
+      NetChange     FLOAT NOT NULL,
+      FundGroup     NVARCHAR(100) NOT NULL,
+      StartPosition FLOAT NULL,
+      EndPosition   FLOAT NULL
+    );
+  `);
 
-    await pool.request().query(`
-      IF NOT EXISTS (
-        SELECT 1 FROM sys.objects
-        WHERE object_id = OBJECT_ID(N'dbo.Investors') AND type = 'U'
-      )
-      CREATE TABLE dbo.Investors (
-        InvestorID    INT IDENTITY PRIMARY KEY,
-        Name          NVARCHAR(255) NOT NULL UNIQUE,
-        Bought        FLOAT NOT NULL,
-        Sold          FLOAT NOT NULL,
-        PercentEquity FLOAT NOT NULL,
-        Category      NVARCHAR(100) NOT NULL,
-        NetChange     FLOAT NOT NULL,
-        FundGroup     NVARCHAR(100) NOT NULL,
-        StartPosition FLOAT NULL,
-        EndPosition   FLOAT NULL
-      );
-    `);
+  // MonthlyRecords
+  await pool.request().query(`
+    IF NOT EXISTS (
+      SELECT 1 FROM sys.objects
+      WHERE object_id = OBJECT_ID(N'dbo.MonthlyRecords') AND type = 'U'
+    )
+    CREATE TABLE dbo.MonthlyRecords (
+      RecordID        INT IDENTITY PRIMARY KEY,
+      AsOfDate        DATE NOT NULL,
+      PAN             NVARCHAR(20) NULL,
+DPID            NVARCHAR(2048) NULL,
+ClientId        NVARCHAR(2048) NULL,
 
-    await pool.request().query(`
-      IF NOT EXISTS (
-        SELECT 1 FROM sys.objects
-        WHERE object_id = OBJECT_ID(N'dbo.MonthlyRecords') AND type = 'U'
-      )
-      CREATE TABLE dbo.MonthlyRecords (
-        RecordID  INT IDENTITY PRIMARY KEY,
-        AsOfDate  DATE NOT NULL,
-        Name      NVARCHAR(255) NOT NULL,
-        Category  NVARCHAR(100) NULL,
-        Shares    FLOAT NOT NULL
-      );
-    `);
+      Name            NVARCHAR(255) NOT NULL,
+      Category        NVARCHAR(100) NULL,
+      Shares          FLOAT NOT NULL,
+      PercentEquity   FLOAT NULL
+    );
+  `);
 
-    await pool.request().query(`
-      IF NOT EXISTS (
-        SELECT 1 FROM sys.indexes
-        WHERE name = 'IX_MonthlyRecords_AsOfDate_Name'
-          AND object_id = OBJECT_ID(N'dbo.MonthlyRecords')
-      )
-      CREATE INDEX IX_MonthlyRecords_AsOfDate_Name
-      ON dbo.MonthlyRecords(AsOfDate, Name);
-    `);
+  // CMD+F: ALTER_MonthlyRecords_DPID_ClientId
+  await pool.request().query(`
+  IF EXISTS (
+    SELECT 1 FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'dbo.MonthlyRecords')
+      AND name = 'DPID'
+      AND max_length < 2048 * 2
+  )
+    ALTER TABLE dbo.MonthlyRecords ALTER COLUMN DPID NVARCHAR(2048) NULL;
 
-    await pool.request().query(`
-      IF NOT EXISTS (
-        SELECT 1 FROM sys.indexes
-        WHERE name = 'IX_Investors_Name'
-          AND object_id = OBJECT_ID(N'dbo.Investors')
-      )
-      CREATE INDEX IX_Investors_Name
-      ON dbo.Investors(Name);
-    `);
+  IF EXISTS (
+    SELECT 1 FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'dbo.MonthlyRecords')
+      AND name = 'ClientId'
+      AND max_length < 2048 * 2
+  )
+    ALTER TABLE dbo.MonthlyRecords ALTER COLUMN ClientId NVARCHAR(2048) NULL;
+`);
 
-    console.log("✅ MSSQL tables ensured (Investors, MonthlyRecords)");
+  // Helpful indexes
+  await pool.request().query(`
+    IF NOT EXISTS (
+      SELECT 1 FROM sys.indexes
+      WHERE name = 'IX_MonthlyRecords_AsOfDate_Name'
+        AND object_id = OBJECT_ID(N'dbo.MonthlyRecords')
+    )
+    CREATE INDEX IX_MonthlyRecords_AsOfDate_Name
+    ON dbo.MonthlyRecords(AsOfDate, Name);
+  `);
 
-    await pool.request().query(`
-      IF NOT EXISTS (
-        SELECT 1 FROM sys.objects
-        WHERE object_id = OBJECT_ID(N'dbo.TradingVolume') AND type = 'U'
-      )
-CREATE TABLE dbo.TradingVolume (
-  Id          INT IDENTITY PRIMARY KEY,
-  Symbol      NVARCHAR(32) NOT NULL,
-  TradeDate   DATE NOT NULL,
-  [Close]     FLOAT NOT NULL,
-  Volume      BIGINT NOT NULL,
-  ValueTraded FLOAT NOT NULL
-);
+  await pool.request().query(`
+    IF NOT EXISTS (
+      SELECT 1 FROM sys.indexes
+      WHERE name = 'IX_MonthlyRecords_AsOfDate_PAN'
+        AND object_id = OBJECT_ID(N'dbo.MonthlyRecords')
+    )
+    CREATE INDEX IX_MonthlyRecords_AsOfDate_PAN
+    ON dbo.MonthlyRecords(AsOfDate, PAN);
+  `);
 
-      IF NOT EXISTS (
-        SELECT 1 FROM sys.indexes
-        WHERE name = 'UX_TradingVolume_Symbol_Date'
-          AND object_id = OBJECT_ID(N'dbo.TradingVolume')
-      )
-      CREATE UNIQUE INDEX UX_TradingVolume_Symbol_Date
-      ON dbo.TradingVolume(Symbol, TradeDate);
-    `);
-    console.log("✅ TradingVolume table ensured (MSSQL)");
-  }
+  await pool.request().query(`
+    IF NOT EXISTS (
+      SELECT 1 FROM sys.indexes
+      WHERE name = 'IX_Investors_Name'
+        AND object_id = OBJECT_ID(N'dbo.Investors')
+    )
+    CREATE INDEX IX_Investors_Name
+    ON dbo.Investors(Name);
+  `);
+
+  // TradingVolume
+  await pool.request().query(`
+    IF NOT EXISTS (
+      SELECT 1 FROM sys.objects
+      WHERE object_id = OBJECT_ID(N'dbo.TradingVolume') AND type = 'U'
+    )
+    CREATE TABLE dbo.TradingVolume (
+      Id          INT IDENTITY PRIMARY KEY,
+      Symbol      NVARCHAR(32) NOT NULL,
+      TradeDate   DATE NOT NULL,
+      [Close]     FLOAT NOT NULL,
+      Volume      BIGINT NOT NULL,
+      ValueTraded FLOAT NOT NULL
+    );
+
+    IF NOT EXISTS (
+      SELECT 1 FROM sys.indexes
+      WHERE name = 'UX_TradingVolume_Symbol_Date'
+        AND object_id = OBJECT_ID(N'dbo.TradingVolume')
+    )
+    CREATE UNIQUE INDEX UX_TradingVolume_Symbol_Date
+    ON dbo.TradingVolume(Symbol, TradeDate);
+  `);
+
+  console.log(
+    "✅ MSSQL tables ensured (Investors, MonthlyRecords, TradingVolume)"
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -688,55 +722,93 @@ async function upsertTradingRow({
   volume,
   valueTraded,
 }) {
-  if (DB_TYPE === "mysql") {
-    await pool.execute(
-      `INSERT INTO TradingVolume (Symbol, TradeDate, Close, Volume, ValueTraded)
-       VALUES (?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         Close = VALUES(Close),
-         Volume = VALUES(Volume),
-         ValueTraded = VALUES(ValueTraded);`,
-      [symbol, tradeDate, close, volume, valueTraded]
-    );
-  } else {
-    const dObj = new Date(`${tradeDate}T00:00:00Z`);
-    if (isNaN(+dObj)) {
-      throw new Error(`Invalid tradeDate '${tradeDate}' for SQL Date`);
-    }
-    await pool
-      .request()
-      .input("Symbol", sql.NVarChar(32), symbol)
-      .input("D", sql.Date, dObj)
-      .input("Close", sql.Float, close)
-      .input("Volume", sql.BigInt, volume)
-      .input("VT", sql.Float, valueTraded).query(`
-        MERGE dbo.TradingVolume AS T
-        USING (SELECT @Symbol AS Symbol, @D AS TradeDate) AS S
-        ON (T.Symbol = S.Symbol AND T.TradeDate = S.TradeDate)
-WHEN MATCHED THEN UPDATE SET [Close]=@Close, Volume=@Volume, ValueTraded=@VT
-WHEN NOT MATCHED THEN INSERT (Symbol,TradeDate,[Close],Volume,ValueTraded)
-  VALUES (@Symbol,@D,@Close,@Volume,@VT);
+  const dObj = new Date(`${tradeDate}T00:00:00Z`);
+  if (isNaN(+dObj))
+    throw new Error(`Invalid tradeDate '${tradeDate}' for SQL Date`);
 
-      `);
+  await pool
+    .request()
+    .input("Symbol", sql.NVarChar(32), symbol)
+    .input("D", sql.Date, dObj)
+    .input("Close", sql.Float, close)
+    .input("Volume", sql.BigInt, volume)
+    .input("VT", sql.Float, valueTraded).query(`
+      MERGE dbo.TradingVolume AS T
+      USING (SELECT @Symbol AS Symbol, @D AS TradeDate) AS S
+      ON (T.Symbol = S.Symbol AND T.TradeDate = S.TradeDate)
+      WHEN MATCHED THEN UPDATE SET [Close]=@Close, Volume=@Volume, ValueTraded=@VT
+      WHEN NOT MATCHED THEN INSERT (Symbol,TradeDate,[Close],Volume,ValueTraded)
+        VALUES (@Symbol,@D,@Close,@Volume,@VT);
+    `);
+}
+
+async function quoteFallback(symbol) {
+  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(
+    symbol
+  )}&region=IN&lang=en-IN`;
+  const r = await fetch(url, {
+    method: "GET",
+    headers: {
+      "user-agent": "Mozilla/5.0",
+      accept: "application/json,text/plain,*/*",
+    },
+  });
+
+  const text = await r.text();
+  let j;
+  try {
+    j = JSON.parse(text);
+  } catch {
+    throw new Error(
+      `Yahoo fallback non-JSON (HTTP ${r.status}): ${text.slice(0, 160)}`
+    );
   }
+
+  if (!r.ok) {
+    throw new Error(
+      `Yahoo fallback HTTP ${r.status}: ${
+        j?.quoteResponse?.error?.description || "blocked/rate-limited"
+      }`
+    );
+  }
+
+  const q = j?.quoteResponse?.result?.[0];
+  if (!q)
+    throw new Error(
+      `Yahoo fallback: empty result for ${symbol} (HTTP ${r.status})`
+    );
+
+  return {
+    regularMarketPrice: q.regularMarketPrice,
+    regularMarketVolume: q.regularMarketVolume,
+    regularMarketTime: q.regularMarketTime,
+  };
 }
 
 async function fetchAndRecordQuote(rawSymbol) {
   const symbol = (rawSymbol || DEFAULT_SYMBOL).trim();
-  const q = await yahooFinance.quote(symbol);
+
+  let q;
+  try {
+    q = await yahooFinance.quote(symbol);
+  } catch (e) {
+    console.error(
+      "yahooFinance.quote failed, using fallback:",
+      e?.message || e
+    );
+    q = await quoteFallback(symbol);
+  }
+
   const volume = Number(q.regularMarketVolume || 0);
   const close = Number(q.regularMarketPrice || 0);
 
-  // Prefer Yahoo's regularMarketTime; fallback = "today" UTC
-  let t = q?.regularMarketTime
+  const t = q?.regularMarketTime
     ? new Date(Number(q.regularMarketTime) * 1000)
     : new Date();
-  let tradeDate = t.toISOString().slice(0, 10); // YYYY-MM-DD
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(tradeDate)) {
-    tradeDate = new Date().toISOString().slice(0, 10);
-  }
 
+  const tradeDate = isoInTz(t, IST_TZ); // ✅ IST date key (not UTC)
   const valueTraded = Math.round(volume * close);
+
   await upsertTradingRow({ symbol, tradeDate, close, volume, valueTraded });
   return { symbol, tradeDate, close, volume, valueTraded };
 }
@@ -746,6 +818,8 @@ async function backfillRange(rawSymbol, startIso, endIso = todayIso()) {
   const symbol = (rawSymbol || DEFAULT_SYMBOL).trim();
   const p1 = new Date(startIso);
   const p2 = new Date(endIso);
+  p2.setDate(p2.getDate() + 1); // ✅ include end day
+
   if (isNaN(+p1) || isNaN(+p2)) {
     throw new Error("Invalid start/end date");
   }
@@ -768,9 +842,9 @@ async function backfillRange(rawSymbol, startIso, endIso = todayIso()) {
   return { symbol, start: startIso, end: endIso, days: upserts };
 }
 
+// No heuristic grouping. Keep metadata only if needed.
 function getFundGroup(name = "") {
-  const p = String(name).trim().split(/\s+/).filter(Boolean);
-  return ((p[0] || "") + (p[1] ? " " + p[1] : "")).toUpperCase();
+  return String(name).trim().toUpperCase(); // full name (NOT first two words)
 }
 
 // NEW: Category normalization helper (minimal, safe)
@@ -907,6 +981,39 @@ app.get("/api/netcheck/yahoo", async (_req, res) => {
   }
 });
 
+// CMD+F: API_DBINFO
+app.get("/api/dbinfo", async (_req, res) => {
+  try {
+    const db = (await pool.request().query("SELECT DB_NAME() AS db"))
+      .recordset?.[0]?.db;
+
+    const counts = {};
+    for (const t of ["Investors", "MonthlyRecords", "TradingVolume"]) {
+      try {
+        const r = await pool
+          .request()
+          .query(`SELECT COUNT(1) AS c FROM dbo.${t}`);
+        counts[t] = r.recordset?.[0]?.c ?? null;
+      } catch {
+        counts[t] = "missing";
+      }
+    }
+
+    const tables = await pool.request().query(`
+      SELECT name FROM sys.tables ORDER BY name
+    `);
+
+    res.json({
+      db,
+      counts,
+      tables: tables.recordset.map((x) => x.name),
+      server: mssqlConfig.server,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
 /*****************************************************************/
 /*  VERIFY-OTP                                                    */
 /*****************************************************************/
@@ -1030,127 +1137,65 @@ app.post("/api/investors", async (req, res) => {
     return res.status(400).json({ error: "Non-empty array expected" });
   }
 
-  if (DB_TYPE === "mysql") {
-    const conn = await pool.getConnection();
-    try {
-      await conn.beginTransaction();
-      for (const inv of list) {
-        await conn.execute(
-          `INSERT INTO Investors
-            (Name,Bought,Sold,PercentEquity,Category,NetChange,FundGroup,StartPosition,EndPosition)
-           VALUES
-            (?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE
-             Bought        = VALUES(Bought),
-             Sold          = VALUES(Sold),
-             PercentEquity = VALUES(PercentEquity),
-             Category      = VALUES(Category),
-             NetChange     = VALUES(NetChange),
-             FundGroup     = VALUES(FundGroup),
-             StartPosition = VALUES(StartPosition),
-             EndPosition   = VALUES(EndPosition);
-          `,
-          [
-            inv.name,
-            inv.boughtOn18,
-            inv.soldOn25,
-            inv.percentToEquity,
-            normalizeCategory(inv.category),
-            inv.netChange,
-            inv.fundGroup,
-            inv.startPosition ?? null,
-            inv.endPosition ?? null,
-          ]
-        );
-      }
-      await conn.commit();
-      res.json({ success: true, upserted: list.length });
-    } catch (e) {
-      await conn.rollback();
-      console.error("POST /api/investors [MySQL] error:", e);
-      res.status(500).json({ error: e.message });
-    } finally {
-      conn.release();
+  const tx = new sql.Transaction(pool);
+  try {
+    await tx.begin();
+    for (const inv of list) {
+      await new sql.Request(tx)
+        .input("Name", sql.NVarChar(255), inv.name)
+        .input("Bought", sql.Float, inv.boughtOn18)
+        .input("Sold", sql.Float, inv.soldOn25)
+        .input("PercentEquity", sql.Float, inv.percentToEquity)
+        .input("Category", sql.NVarChar(100), normalizeCategory(inv.category))
+        .input("NetChange", sql.Float, inv.netChange)
+        .input("FundGroup", sql.NVarChar(100), inv.fundGroup)
+        .input("StartPos", sql.Float, inv.startPosition ?? null)
+        .input("EndPos", sql.Float, inv.endPosition ?? null).query(`
+          MERGE dbo.Investors AS T
+          USING (SELECT @Name AS Name) AS S ON T.Name = S.Name
+          WHEN MATCHED THEN UPDATE SET
+            Bought        = @Bought,
+            Sold          = @Sold,
+            PercentEquity = @PercentEquity,
+            Category      = @Category,
+            NetChange     = @NetChange,
+            FundGroup     = @FundGroup,
+            StartPosition = @StartPos,
+            EndPosition   = @EndPos
+          WHEN NOT MATCHED THEN INSERT
+            (Name,Bought,Sold,PercentEquity,Category,
+             NetChange,FundGroup,StartPosition,EndPosition)
+            VALUES
+            (@Name,@Bought,@Sold,@PercentEquity,@Category,
+             @NetChange,@FundGroup,@StartPos,@EndPos);
+        `);
     }
-  } else {
-    const tx = new sql.Transaction(pool);
-    try {
-      await tx.begin();
-      for (const inv of list) {
-        await new sql.Request(tx)
-          .input("Name", sql.NVarChar(255), inv.name)
-          .input("Bought", sql.Float, inv.boughtOn18)
-          .input("Sold", sql.Float, inv.soldOn25)
-          .input("PercentEquity", sql.Float, inv.percentToEquity)
-          .input("Category", sql.NVarChar(100), normalizeCategory(inv.category))
-          .input("NetChange", sql.Float, inv.netChange)
-          .input("FundGroup", sql.NVarChar(100), inv.fundGroup)
-          .input("StartPos", sql.Float, inv.startPosition ?? null)
-          .input("EndPos", sql.Float, inv.endPosition ?? null).query(`
-            MERGE dbo.Investors AS T
-            USING (SELECT @Name AS Name) AS S ON T.Name = S.Name
-            WHEN MATCHED THEN UPDATE SET
-              Bought        = @Bought,
-              Sold          = @Sold,
-              PercentEquity = @PercentEquity,
-              Category      = @Category,
-              NetChange     = @NetChange,
-              FundGroup     = @FundGroup,
-              StartPosition = @StartPos,
-              EndPosition   = @EndPos
-            WHEN NOT MATCHED THEN INSERT
-              (Name,Bought,Sold,PercentEquity,Category,
-               NetChange,FundGroup,StartPosition,EndPosition)
-              VALUES
-              (@Name,@Bought,@Sold,@PercentEquity,@Category,
-               @NetChange,@FundGroup,@StartPos,@EndPos);
-          `);
-      }
-      await tx.commit();
-      res.json({ success: true, upserted: list.length });
-    } catch (e) {
-      await tx.rollback();
-      console.error("POST /api/investors [MSSQL] error:", e);
-      res.status(500).json({ error: e.message });
-    }
+    await tx.commit();
+    res.json({ success: true, upserted: list.length });
+  } catch (e) {
+    await tx.rollback();
+    console.error("POST /api/investors [MSSQL] error:", e);
+    res.status(500).json({ error: e.message });
   }
 });
 
 app.get("/api/investors", async (_, res) => {
   try {
-    if (DB_TYPE === "mysql") {
-      const [rows] = await pool.execute(`
-        SELECT
-          Name,
-          Bought        AS boughtOn18,
-          Sold          AS soldOn25,
-          PercentEquity AS percentToEquity,
-          Category,
-          NetChange     AS netChange,
-          FundGroup     AS fundGroup,
-          StartPosition AS startPosition,
-          EndPosition   AS endPosition
-        FROM Investors
-        ORDER BY Name;
-      `);
-      res.json(rows);
-    } else {
-      const r = await pool.request().query(`
-        SELECT
-          Name,
-          Bought        AS boughtOn18,
-          Sold          AS soldOn25,
-          PercentEquity AS percentToEquity,
-          Category,
-          NetChange     AS netChange,
-          FundGroup     AS fundGroup,
-          StartPosition AS startPosition,
-          EndPosition   AS endPosition
-        FROM dbo.Investors
-        ORDER BY Name;
-      `);
-      res.json(r.recordset);
-    }
+    const r = await pool.request().query(`
+      SELECT
+        Name,
+        Bought        AS boughtOn18,
+        Sold          AS soldOn25,
+        PercentEquity AS percentToEquity,
+        Category,
+        NetChange     AS netChange,
+        FundGroup     AS fundGroup,
+        StartPosition AS startPosition,
+        EndPosition   AS endPosition
+      FROM dbo.Investors
+      ORDER BY Name;
+    `);
+    res.json(r.recordset);
   } catch (e) {
     console.error("GET /api/investors error:", e);
     res.status(500).json({ error: e.message });
@@ -1165,9 +1210,8 @@ app.post("/api/monthly", async (req, res) => {
   if (!Array.isArray(rows) || rows.length === 0) {
     return res.status(400).json({ error: "Non-empty array expected" });
   }
-  const rawDate = String(rows?.[0]?.date || "").trim();
 
-  // ✅ Enforce ISO only (prevents DD/MM vs MM/DD bugs)
+  const rawDate = String(rows?.[0]?.date || "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
     return res.status(400).json({
       error: "Invalid date format. Expected ISO YYYY-MM-DD (e.g. 2026-01-02).",
@@ -1175,106 +1219,173 @@ app.post("/api/monthly", async (req, res) => {
     });
   }
 
-  // Use a stable construction (no locale parsing)
   const asOf = new Date(`${rawDate}T00:00:00Z`);
 
+  const normalizePan = (v) => {
+    const s = String(v ?? "")
+      .trim()
+      .toUpperCase()
+      .replace(/\s+/g, "");
+    return s ? s : null;
+  };
+
+  const strOrNull = (v) => {
+    const s = String(v ?? "").trim();
+    return s ? s : null;
+  };
+
+  const numOr0 = (v) => {
+    if (v === null || v === undefined || v === "") return 0;
+    const n = Number(String(v).replace(/,/g, ""));
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  // Group by PAN (fallback to name)
+  const grouped = new Map();
+
+  for (const r of rows) {
+    const name = String(r?.name ?? r?.Name ?? "").trim();
+    const pan = normalizePan(r?.pan ?? r?.PAN);
+
+    const key = pan || name;
+    if (!key) continue;
+
+    const shares = numOr0(r?.shares ?? r?.Shares);
+    const pct = numOr0(
+      r?.percentEquity ??
+        r?.percentToEquity ??
+        r?.PercentEquity ??
+        r?.["% to Equity"]
+    );
+
+    const categoryRaw = r?.category ?? r?.Category ?? null;
+    const category = categoryRaw ? normalizeCategory(categoryRaw) : null;
+
+    const dpid = strOrNull(r?.dpid ?? r?.DPID);
+    const clientId = strOrNull(
+      r?.clientId ?? r?.ClientId ?? r?.["Client Id/Folio"]
+    );
+
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        pan,
+        name: name || key,
+        category,
+        shares: 0,
+        percentEquity: null,
+        dpidSet: new Set(),
+        clientSet: new Set(),
+      });
+    }
+
+    const g = grouped.get(key);
+    g.shares += shares;
+    if (pct) g.percentEquity = (g.percentEquity || 0) + pct;
+
+    if (dpid) g.dpidSet.add(dpid);
+    if (clientId) g.clientSet.add(clientId);
+
+    if (!g.category && category) g.category = category;
+    if (name && name.length > (g.name?.length || 0)) g.name = name;
+  }
+
+  const prepared = Array.from(grouped.values()).map((g) => ({
+    pan: g.pan,
+    dpid: g.dpidSet.size ? Array.from(g.dpidSet).join(" | ") : null,
+    clientId: g.clientSet.size ? Array.from(g.clientSet).join(" | ") : null,
+    name: g.name,
+    category: g.category,
+    shares: g.shares,
+    percentEquity: g.percentEquity,
+  }));
+
   try {
-    if (DB_TYPE === "mysql") {
-      // delete existing
-      await pool.execute(`DELETE FROM MonthlyRecords WHERE AsOfDate = ?`, [
+    // Delete existing month
+    await pool
+      .request()
+      .input("d", sql.Date, asOf)
+      .query("DELETE FROM dbo.MonthlyRecords WHERE AsOfDate = @d");
+
+    // Bulk insert
+    const tvp = new sql.Table("MonthlyRecords");
+    tvp.schema = "dbo"; // important when using dbo tables
+    tvp.columns.add("AsOfDate", sql.Date, { nullable: false });
+    tvp.columns.add("PAN", sql.NVarChar(20), { nullable: true });
+    tvp.columns.add("DPID", sql.NVarChar(2048), { nullable: true });
+    tvp.columns.add("ClientId", sql.NVarChar(2048), { nullable: true });
+
+    tvp.columns.add("Name", sql.NVarChar(255), { nullable: false });
+    tvp.columns.add("Category", sql.NVarChar(100), { nullable: true });
+    tvp.columns.add("Shares", sql.Float, { nullable: false });
+    tvp.columns.add("PercentEquity", sql.Float, { nullable: true });
+
+    prepared.forEach((r) =>
+      tvp.rows.add(
         asOf,
-      ]);
-      // insert all via single multi-row
-      const vals = rows.map((r) => [
-        asOf,
+        r.pan,
+        r.dpid,
+        r.clientId,
         r.name,
         r.category ? normalizeCategory(r.category) : null,
         r.shares,
-      ]);
-      await pool.query(
-        `INSERT INTO MonthlyRecords (AsOfDate,Name,Category,Shares)
-         VALUES ?
-        `,
-        [vals]
-      );
-      // notify stakeholders (test: only Aarnav; flip NOTIFY_ALL to true to email ALLOWED)
-      await notifyMonthlyUpload(asOf, `${req.protocol}://${req.get("host")}`);
-      res.json({ success: true, inserted: rows.length });
-    } else {
-      await pool
-        .request()
-        .input("d", sql.Date, asOf)
-        .query("DELETE FROM dbo.MonthlyRecords WHERE AsOfDate = @d");
+        r.percentEquity ?? null
+      )
+    );
 
-      const tvp = new sql.Table("MonthlyRecords");
-      tvp.columns.add("AsOfDate", sql.Date, { nullable: false });
-      tvp.columns.add("Name", sql.NVarChar(255), { nullable: false });
-      tvp.columns.add("Category", sql.NVarChar(100), { nullable: true });
-      tvp.columns.add("Shares", sql.Float, { nullable: false });
-
-      rows.forEach((r) =>
-        tvp.rows.add(
-          asOf,
-          r.name,
-          r.category ? normalizeCategory(r.category) : null,
-          r.shares
-        )
-      );
-
-      await pool.request().bulk(tvp);
-      // notify stakeholders (test: only Aarnav; flip NOTIFY_ALL to true to email ALLOWED)
-      await notifyMonthlyUpload(asOf, `${req.protocol}://${req.get("host")}`);
-      res.json({ success: true, inserted: rows.length });
-    }
+    await pool.request().bulk(tvp);
+    return res.json({ success: true, inserted: prepared.length });
   } catch (e) {
-    console.error("POST /api/monthly error:", e);
-    res.status(500).json({ error: e.message });
+    const info = e?.originalError?.info || e?.info || null;
+    console.error("POST /api/monthly error:", e?.stack || e);
+    if (info) console.error("MSSQL info:", info);
+
+    return res.status(500).json({
+      error: e?.message || String(e),
+      mssql: info?.message || info || undefined,
+    });
   }
 });
 
 app.get("/api/monthly", async (_, res) => {
   try {
-    let data;
-    if (DB_TYPE === "mysql") {
-      const [rows] = await pool.execute(`
-        SELECT AsOfDate, Name, Category, Shares
-        FROM MonthlyRecords with (NOLOCK)
-        ORDER BY AsOfDate, Name;
-      `);
-      data = rows;
-    } else {
-      const r = await pool.request().query(`
-        SELECT AsOfDate, Name, Category, Shares
-        FROM dbo.MonthlyRecords
-        ORDER BY AsOfDate, Name;
-      `);
-      data = r.recordset;
-    }
+    const r = await pool.request().query(`
+      SELECT AsOfDate, PAN, Name, Category, Shares
+      FROM dbo.MonthlyRecords
+      ORDER BY AsOfDate, Name;
+    `);
 
-    // ────────────────────────────────────────────────────────────────
-    // Phase 1: Build raw per-investor timeseries (full names preserved)
-    // ────────────────────────────────────────────────────────────────
+    const data = r.recordset;
+
     const raw = Object.create(null);
-    let latestIso = null;
+
     for (const row of data) {
       const name = String(row.Name ?? "").trim();
-      if (!name) continue;
-      // normalize + treat empty/whitespace as null
+      const pan =
+        row.PAN == null
+          ? null
+          : String(row.PAN).trim().toUpperCase().replace(/\s+/g, "");
+
+      const key = pan || name;
+      if (!key) continue;
+
       const rawCat = row.Category == null ? "" : String(row.Category);
       const norm = normalizeCategory(rawCat);
       const cat = (norm || "").trim() || null;
 
-      if (!raw[name]) {
-        raw[name] = {
-          name, // full name
-          category: cat, // first non-empty category we see
+      if (!raw[key]) {
+        raw[key] = {
+          pan: pan || null,
+          name: name || key,
+          category: cat,
           description: "",
-          fundGroup: getFundGroup(name),
+          fundGroup: getFundGroup(name || key),
           monthlyShares: Object.create(null),
         };
-      } else if (!raw[name].category && cat) {
-        // backfill if we previously had no category
-        raw[name].category = cat;
+      } else {
+        if (name && name.length > (raw[key].name?.length || 0))
+          raw[key].name = name;
+        if (!raw[key].category && cat) raw[key].category = cat;
+        if (!raw[key].pan && pan) raw[key].pan = pan;
       }
 
       const iso =
@@ -1283,95 +1394,27 @@ app.get("/api/monthly", async (_, res) => {
           : new Date(row.AsOfDate).toISOString().slice(0, 10);
 
       const shares = Number(row.Shares || 0);
-
-      // ✅ Don't store zero-only points (prevents phantom month keys)
       if (shares !== 0) {
-        raw[name].monthlyShares[iso] = shares;
-      }
-
-      if (!latestIso || iso > latestIso) latestIso = iso;
-    }
-
-    // Helper: does this investor ever hit the threshold individually?
-    const MIN_SHARES = 20000;
-    const qualifiesIndividually = (inv) =>
-      Object.values(inv.monthlyShares).some((v) => Number(v) >= MIN_SHARES);
-
-    // ────────────────────────────────────────────────────────────────
-    // Phase 2: Find qualifying members (>= 20k on any date)
-    // ────────────────────────────────────────────────────────────────
-    const names = Object.keys(raw);
-    const qualifying = names.filter((n) => qualifiesIndividually(raw[n]));
-
-    // ────────────────────────────────────────────────────────────────
-    // Phase 3: Club qualifying members by (fundGroup, category)
-    //          -> each emitted group is category-pure
-    // ────────────────────────────────────────────────────────────────
-    const byGroupCat = new Map(); // key: `${groupId}||${cat}` -> string[] names
-    for (const n of qualifying) {
-      const groupId = raw[n].fundGroup;
-      const cat = raw[n].category || "Unspecified";
-      const key = `${groupId}||${cat}`;
-      if (!byGroupCat.has(key)) byGroupCat.set(key, []);
-      byGroupCat.get(key).push(n);
-    }
-
-    // Sum series helper for a set of members
-    function sumSeries(members) {
-      const out = Object.create(null);
-      for (const m of members) {
-        const series = raw[m].monthlyShares;
-        for (const d of Object.keys(series)) {
-          out[d] = (out[d] || 0) + Number(series[d] || 0);
-        }
-      }
-      return out;
-    }
-
-    // Build final list
-    const used = new Set(); // names absorbed into a group
-    const result = [];
-
-    // Emit groups (only when there are >=2 qualifying members)
-    for (const [key, members] of byGroupCat.entries()) {
-      const [groupId, cat] = key.split("||");
-      if (members.length >= 2) {
-        const individualInvestors = members.map((n) => ({
-          name: raw[n].name,
-          category: raw[n].category ?? null,
-          monthlyShares: raw[n].monthlyShares,
-        }));
-        result.push({
-          name: groupId,
-          category: cat, // category-pure group
-          description: "",
-          fundGroup: groupId,
-          monthlyShares: sumSeries(members),
-          individualInvestors,
-        });
-        members.forEach((n) => used.add(n));
+        raw[key].monthlyShares[iso] =
+          (raw[key].monthlyShares[iso] || 0) + shares;
       }
     }
 
-    // Add remaining (singletons not absorbed into a group)
-    for (const n of names) {
-      if (used.has(n)) continue;
-      const inv = raw[n];
-      result.push({
-        name: inv.name,
-        category: inv.category ?? null,
+    const result = Object.keys(raw)
+      .sort((a, b) => String(a).localeCompare(String(b)))
+      .map((k) => ({
+        pan: raw[k].pan ?? null,
+        name: raw[k].name,
+        category: raw[k].category ?? null,
         description: "",
-        fundGroup: inv.fundGroup,
-        monthlyShares: inv.monthlyShares,
-      });
-    }
+        fundGroup: getFundGroup(raw[k].name),
+        monthlyShares: raw[k].monthlyShares,
+      }));
 
-    // Stable sort + respond
-    result.sort((a, b) => String(a.name).localeCompare(String(b.name)));
-    res.json(result);
+    return res.json(result);
   } catch (e) {
     console.error("GET /api/monthly error:", e);
-    res.status(500).json({ error: e.message });
+    return res.status(500).json({ error: e.message });
   }
 });
 
@@ -1382,61 +1425,41 @@ app.get("/api/trading", async (req, res) => {
   const symbol = String(req.query.symbol || DEFAULT_SYMBOL).trim();
   const start = req.query.start ? String(req.query.start) : null; // YYYY-MM-DD
   const limit = Math.max(1, Math.min(365, Number(req.query.limit || 30)));
+
   try {
-    if (DB_TYPE === "mysql") {
-      let rows;
-      if (start) {
-        [rows] = await pool.execute(
-          `SELECT Symbol, TradeDate, Close, Volume, ValueTraded
-             FROM TradingVolume
-            WHERE Symbol = ? AND TradeDate >= ?
-            ORDER BY TradeDate DESC`,
-          [symbol, start]
-        );
-      } else {
-        [rows] = await pool.execute(
-          `SELECT Symbol, TradeDate, Close, Volume, ValueTraded
-             FROM TradingVolume
-            WHERE Symbol = ?
-            ORDER BY TradeDate DESC
-            LIMIT ?`,
-          [symbol, limit]
-        );
-      }
-      return res.json(rows);
+    const rq = pool.request().input("Symbol", sql.NVarChar(32), symbol);
+
+    let r;
+    if (start) {
+      r = await rq.input("Start", sql.Date, new Date(start)).query(`
+        SELECT
+          Symbol,
+          TradeDate,
+          [Close] AS [Close],
+          Volume,
+          ValueTraded
+        FROM dbo.TradingVolume
+        WHERE Symbol = @Symbol AND TradeDate >= @Start
+        ORDER BY TradeDate DESC;
+      `);
     } else {
-      const rq = pool.request().input("Symbol", sql.NVarChar(32), symbol);
-      let r;
-      if (start) {
-        r = await rq.input("Start", sql.Date, new Date(start)).query(`
-                  SELECT
-                    Symbol,
-                    TradeDate,
-                    [Close] AS [Close],
-                    Volume,
-                    ValueTraded
-                  FROM dbo.TradingVolume
-                  WHERE Symbol = @Symbol AND TradeDate >= @Start
-                  ORDER BY TradeDate DESC;
-                `);
-      } else {
-        r = await rq.input("Limit", sql.Int, limit).query(`
-                SELECT TOP (@Limit)
-                  Symbol,
-                  TradeDate,
-                  [Close] AS [Close],
-                  Volume,
-                  ValueTraded
-                FROM dbo.TradingVolume
-                WHERE Symbol = @Symbol
-                ORDER BY TradeDate DESC;
-              `);
-      }
-      return res.json(r.recordset);
+      r = await rq.input("Limit", sql.Int, limit).query(`
+        SELECT TOP (@Limit)
+          Symbol,
+          TradeDate,
+          [Close] AS [Close],
+          Volume,
+          ValueTraded
+        FROM dbo.TradingVolume
+        WHERE Symbol = @Symbol
+        ORDER BY TradeDate DESC;
+      `);
     }
+
+    return res.json(r.recordset);
   } catch (e) {
     console.error("GET /api/trading error:", e);
-    res.status(500).json({ error: e.message || String(e) });
+    return res.status(500).json({ error: e.message || String(e) });
   }
 });
 
@@ -1470,12 +1493,19 @@ app.post("/api/trading/refresh/raw", async (req, res) => {
 app.post("/api/trading/refresh", async (req, res) => {
   try {
     const symbol = String(req.body?.symbol || DEFAULT_SYMBOL).trim();
-    // quick sanity logs
-    console.log("YahooFinance ctor:", yahooFinance?.constructor?.name);
-    console.log("Has quote:", typeof yahooFinance.quote === "function");
+    const force =
+      req.body?.force === true || String(req.query.force || "") === "1";
+    const today = todayIsoIST();
+
+    if (!force) {
+      const existing = await getTradingRow(symbol, today);
+      if (existing) {
+        return res.json({ ...existing, cached: true, tradeDate: today });
+      }
+    }
 
     const row = await fetchAndRecordQuote(symbol);
-    return res.json(row);
+    return res.json({ ...row, cached: false });
   } catch (e) {
     const err =
       e && typeof e === "object"
@@ -1485,7 +1515,6 @@ app.post("/api/trading/refresh", async (req, res) => {
             name: e.name,
             stack: e.stack,
             cause: e.cause?.message || e.cause,
-            details: e.response?.data || e.data || undefined,
           }
         : { message: String(e) };
 
@@ -1521,9 +1550,6 @@ app.use((req, res, next) => {
 /* ------------------------------------------------------------------ */
 /* HTTPS Boot                                                         */
 /* ------------------------------------------------------------------ */
-/* ------------------------------------------------------------------ */
-/* HTTPS Boot                                                         */
-/* ------------------------------------------------------------------ */
 const httpsOptions = {
   key: readFileOrExit(TLS_KEY_FILE, "TLS_KEY_FILE"),
   cert: readFileOrExit(TLS_CERT_FILE, "TLS_CERT_FILE"),
@@ -1545,23 +1571,6 @@ async function start() {
           console.log("📈 Trading captured:", r);
         } catch (e) {
           console.error("Trading cron error:", e?.message || e);
-        }
-      },
-      { timezone: "Asia/Kolkata" }
-    );
-    // Auto-request shareholder list every Monday 09:00 IST (for previous Friday)
-    cron.schedule(
-      "0 9 * * 1",
-      async () => {
-        try {
-          const friday = previousFriday(new Date());
-          await sendWeeklyShareholderRequest(friday);
-          console.log(
-            "📧 Weekly shareholder request sent for",
-            formatDateIST(friday)
-          );
-        } catch (e) {
-          console.error("Weekly request cron error:", e?.message || e);
         }
       },
       { timezone: "Asia/Kolkata" }
