@@ -3,8 +3,8 @@
 # =========================
 
 # --- JWT / SSO ---
-AUTH_PRIVATE_KEY_FILE="C:\Users\Administrator\Desktop\digi\server\keys\auth-private.pem"
-AUTH_PUBLIC_KEY_FILE="C:\Users\Administrator\Desktop\digi\server\keys\auth-public.pem"
+AUTH_PRIVATE_KEY_FILE="/Users/aarrated/Desktop/invest-premier/server/keys/auth-private.pem"
+AUTH_PUBLIC_KEY_FILE="/Users/aarrated/Desktop/invest-premier/server/keys/auth-public.pem"
 
 # IMPORTANT: for cross-subdomain SSO cookies (digi/invest/spot/...)
 COOKIE_DOMAIN=.premierenergies.com
@@ -20,12 +20,19 @@ PORTAL_ORIGIN=https://digi.premierenergies.com
 PORTAL_LOGIN_PATH=/login
 
 # --- MSSQL (business DB) ---
-MSSQL_USER=SPOT_USER
-MSSQL_PASSWORD="Marvik#72@"
-MSSQL_SERVER=10.0.40.10
+MSSQL_USER=PEL_DB
+MSSQL_PASSWORD="Pel@0184"
+MSSQL_SERVER=10.0.50.17
 MSSQL_PORT=1433
-MSSQL_DB=SART
-# NOTE: authDbConfig (OTP) uses SPOT internally in code as your server.cjs defines
+MSSQL_DB=investdev
+
+# --- MSSQL (AUTH DB for EMP + Login OTP) ---
+# This is where EMP + Login tables live (you said: SART)
+AUTH_MSSQL_USER=SPOT_USER
+AUTH_MSSQL_PASSWORD="Marvik#72@"
+AUTH_MSSQL_SERVER=10.0.40.10
+AUTH_MSSQL_PORT=1433
+AUTH_MSSQL_DB=SART
 
 # --- Microsoft Graph ---
 AZURE_CLIENT_ID=3d310826-2173-44e5-b9a2-b21e940b67f7
@@ -34,9 +41,9 @@ AZURE_CLIENT_SECRET=2e78Q~yX92LfwTTOg4EYBjNQrXrZ2z5di1Kvebog
 SENDER_EMAIL=spot@premierenergies.com
 
 # --- HTTPS (wildcard certs) ---
-TLS_KEY_FILE="C:\Users\Administrator\Desktop\invest-premier\server\certs\mydomain.key"
-TLS_CERT_FILE="C:\Users\Administrator\Desktop\invest-premier\server\certs\d466aacf3db3f299.crt"
-TLS_CA_FILE="C:\Users\Administrator\Desktop\invest-premier\server\certs\gd_bundle-g2-g1.crt"
+TLS_KEY_FILE="/Users/aarrated/Desktop/invest-premier/server/certs/mydomain.key"
+TLS_CERT_FILE="/Users/aarrated/Desktop/invest-premier/server/certs/d466aacf3db3f299.crt"
+TLS_CA_FILE="/Users/aarrated/Desktop/invest-premier/server/certs/gd_bundle-g2-g1.crt"
 
 # --- Server ---
 HOST=0.0.0.0
