@@ -393,7 +393,7 @@ console.log(
 
 const mssqlConfig = {
   user: process.env.MSSQL_USER || "PEL_DB",
-  password: process.env.MSSQL_PASSWORD || "Pel@0184",
+  password: process.env.MSSQL_PASSWORD || "V@aN3#@VaN",
   server: process.env.MSSQL_SERVER || "10.0.50.17",
   port: Number(process.env.MSSQL_PORT) || 1433,
   database: EFFECTIVE_MSSQL_DB,
@@ -702,6 +702,51 @@ ClientId        NVARCHAR(2048) NULL,
     ON dbo.TradingVolume(Symbol, TradeDate);
   `);
 
+  // CMD+F: GROUPS_TABLES
+  // Groups + GroupMembers (custom user-defined clustering of entities)
+  await pool.request().query(`
+    IF NOT EXISTS (
+      SELECT 1 FROM sys.objects
+      WHERE object_id = OBJECT_ID(N'dbo.Groups') AND type = 'U'
+    )
+    BEGIN
+      CREATE TABLE dbo.Groups (
+        GroupID   INT IDENTITY PRIMARY KEY,
+        Name      NVARCHAR(255) NOT NULL UNIQUE,
+        Category  NVARCHAR(100) NULL,
+        CreatedAt DATETIME2 NOT NULL CONSTRAINT DF_Groups_CreatedAt DEFAULT SYSUTCDATETIME(),
+        UpdatedAt DATETIME2 NOT NULL CONSTRAINT DF_Groups_UpdatedAt DEFAULT SYSUTCDATETIME()
+      );
+    END;
+
+    IF NOT EXISTS (
+      SELECT 1 FROM sys.objects
+      WHERE object_id = OBJECT_ID(N'dbo.GroupMembers') AND type = 'U'
+    )
+    BEGIN
+      CREATE TABLE dbo.GroupMembers (
+        GroupID    INT NOT NULL,
+        MemberKey  NVARCHAR(512) NOT NULL,   -- PAN (preferred) else Name-key
+        MemberPAN  NVARCHAR(20) NULL,
+        MemberName NVARCHAR(255) NULL,
+        CreatedAt  DATETIME2 NOT NULL CONSTRAINT DF_GroupMembers_CreatedAt DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT PK_GroupMembers PRIMARY KEY (GroupID, MemberKey),
+        CONSTRAINT FK_GroupMembers_Groups FOREIGN KEY (GroupID)
+          REFERENCES dbo.Groups(GroupID) ON DELETE CASCADE
+      );
+    END;
+
+    IF NOT EXISTS (
+      SELECT 1 FROM sys.indexes
+      WHERE name = 'IX_GroupMembers_MemberKey'
+        AND object_id = OBJECT_ID(N'dbo.GroupMembers')
+    )
+    CREATE INDEX IX_GroupMembers_MemberKey
+    ON dbo.GroupMembers(MemberKey);
+  `);
+
+  console.log("✅ MSSQL tables ensured (Groups, GroupMembers)");
+
   console.log(
     "✅ MSSQL tables ensured (Investors, MonthlyRecords, TradingVolume)"
   );
@@ -873,6 +918,110 @@ function normalizeCategory(category) {
   if (!category) return category;
   const key = String(category).trim().toUpperCase();
   return CATEGORY_MAP[key] || category; // if not mapped, pass-through unchanged
+}
+
+// CMD+F: GROUPS_HELPERS
+function normalizeMaybePanKey(v) {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  const up = s.toUpperCase().replace(/\s+/g, "");
+  // PAN is typically 10 chars; keep it strict-ish but not fragile
+  if (
+    /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(up) ||
+    (up.length === 10 && /^[A-Z0-9]+$/.test(up))
+  ) {
+    return up;
+  }
+  return s;
+}
+
+function uniqByKey(items, getKey) {
+  const seen = new Set();
+  const out = [];
+  for (const it of items) {
+    const k = getKey(it);
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.push(it);
+  }
+  return out;
+}
+
+function parseGroupMembers(raw) {
+  if (!Array.isArray(raw)) return [];
+  const items = [];
+
+  for (const it of raw) {
+    if (typeof it === "string") {
+      const key = normalizeMaybePanKey(it);
+      if (key) items.push({ key, pan: null, name: null });
+      continue;
+    }
+
+    if (it && typeof it === "object") {
+      const pan = it.pan ?? it.PAN ?? null;
+      const name = it.name ?? it.Name ?? null;
+      const keyRaw =
+        it.key ??
+        it.memberKey ??
+        it.MemberKey ??
+        (pan ? pan : null) ??
+        (name ? name : null);
+
+      const key = normalizeMaybePanKey(keyRaw);
+      const panNorm = pan
+        ? String(pan).trim().toUpperCase().replace(/\s+/g, "")
+        : null;
+      const nameNorm = name ? String(name).trim() : null;
+
+      if (key)
+        items.push({ key, pan: panNorm || null, name: nameNorm || null });
+    }
+  }
+
+  return uniqByKey(items, (x) => x.key);
+}
+
+async function distinctCategoriesForKeys(memberKeys) {
+  const keys = Array.from(
+    new Set(
+      (memberKeys || []).map((k) => String(k || "").trim()).filter(Boolean)
+    )
+  );
+  if (keys.length === 0) return [];
+
+  const maxRow = await pool
+    .request()
+    .query(`SELECT MAX(AsOfDate) AS d FROM dbo.MonthlyRecords`);
+  const d = maxRow.recordset?.[0]?.d;
+  if (!d) return [];
+
+  // Avoid insane parameter counts; groups should be human-sized anyway
+  const limited = keys.slice(0, 500);
+
+  const rq = pool.request().input("D", sql.Date, d);
+  const params = [];
+  for (let i = 0; i < limited.length; i++) {
+    rq.input(`k${i}`, sql.NVarChar(512), limited[i]);
+    params.push(`@k${i}`);
+  }
+  const inClause = params.join(",");
+
+  const q = `
+    SELECT DISTINCT Category
+    FROM dbo.MonthlyRecords
+    WHERE AsOfDate = @D
+      AND Category IS NOT NULL
+      AND (PAN IN (${inClause}) OR Name IN (${inClause}));
+  `;
+
+  const r = await rq.query(q);
+  const cats = (r.recordset || [])
+    .map((x) => normalizeCategory(x.Category))
+    .map((x) => (x == null ? "" : String(x).trim()))
+    .filter(Boolean);
+
+  return Array.from(new Set(cats));
 }
 
 /*****************************************************************/
@@ -1126,6 +1275,195 @@ app.post("/auth/refresh", (req, res) => {
 app.post("/auth/logout", (req, res) => {
   clearSsoCookies(res);
   res.json({ ok: true });
+});
+
+/* ------------------------------------------------------------------ */
+/* API – Groups                                                       */
+/* ------------------------------------------------------------------ */
+// CMD+F: API_GROUPS
+
+app.get("/api/groups", async (_req, res) => {
+  try {
+    const g = await pool.request().query(`
+      SELECT
+        GroupID,
+        Name,
+        Category,
+        CreatedAt,
+        UpdatedAt,
+        (SELECT COUNT(1) FROM dbo.GroupMembers gm WHERE gm.GroupID = g.GroupID) AS MemberCount
+      FROM dbo.Groups g
+      ORDER BY Name;
+    `);
+
+    const m = await pool.request().query(`
+      SELECT GroupID, MemberKey, MemberPAN, MemberName
+      FROM dbo.GroupMembers
+      ORDER BY GroupID, MemberKey;
+    `);
+
+    const byGroup = new Map();
+    for (const row of m.recordset || []) {
+      if (!byGroup.has(row.GroupID)) byGroup.set(row.GroupID, []);
+      byGroup.get(row.GroupID).push({
+        key: row.MemberKey,
+        pan: row.MemberPAN ?? null,
+        name: row.MemberName ?? null,
+      });
+    }
+
+    const out = (g.recordset || []).map((row) => ({
+      id: row.GroupID,
+      name: row.Name,
+      category: row.Category ?? null,
+      createdAt: row.CreatedAt,
+      updatedAt: row.UpdatedAt,
+      memberCount: row.MemberCount ?? 0,
+      members: byGroup.get(row.GroupID) || [],
+    }));
+
+    return res.json(out);
+  } catch (e) {
+    console.error("GET /api/groups error:", e);
+    return res.status(500).json({ error: e?.message || String(e) });
+  }
+});
+
+app.post("/api/groups", async (req, res) => {
+  const name = String(req.body?.name ?? "").trim();
+  if (!name) return res.status(400).json({ error: "Missing group name" });
+
+  const members = parseGroupMembers(req.body?.members);
+  if (!members.length)
+    return res.status(400).json({ error: "Select at least 1 member" });
+
+  let category = String(req.body?.category ?? "").trim();
+  category = category ? normalizeCategory(category) : null;
+
+  try {
+    // If members have multiple categories (latest month), require user pick one
+    const distinct = await distinctCategoriesForKeys(members.map((m) => m.key));
+    if (!category && distinct.length === 1) category = distinct[0];
+    if (!category && distinct.length > 1) {
+      return res
+        .status(400)
+        .json({ error: "category_required", categories: distinct });
+    }
+
+    const tx = new sql.Transaction(pool);
+    await tx.begin();
+
+    const ins = await new sql.Request(tx)
+      .input("Name", sql.NVarChar(255), name)
+      .input("Category", sql.NVarChar(100), category).query(`
+        INSERT INTO dbo.Groups (Name, Category)
+        OUTPUT inserted.GroupID AS id
+        VALUES (@Name, @Category);
+      `);
+
+    const groupId = ins.recordset?.[0]?.id;
+
+    for (const mem of members) {
+      await new sql.Request(tx)
+        .input("GroupID", sql.Int, groupId)
+        .input("MemberKey", sql.NVarChar(512), mem.key)
+        .input("MemberPAN", sql.NVarChar(20), mem.pan || null)
+        .input("MemberName", sql.NVarChar(255), mem.name || null).query(`
+          INSERT INTO dbo.GroupMembers (GroupID, MemberKey, MemberPAN, MemberName)
+          VALUES (@GroupID, @MemberKey, @MemberPAN, @MemberName);
+        `);
+    }
+
+    await tx.commit();
+    return res.json({ ok: true, id: groupId });
+  } catch (e) {
+    // Duplicate name
+    if (e?.number === 2627 || e?.number === 2601) {
+      return res.status(409).json({ error: "duplicate_name" });
+    }
+    console.error("POST /api/groups error:", e);
+    return res.status(500).json({ error: e?.message || String(e) });
+  }
+});
+
+app.put("/api/groups/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id))
+    return res.status(400).json({ error: "Invalid group id" });
+
+  const name = String(req.body?.name ?? "").trim();
+  if (!name) return res.status(400).json({ error: "Missing group name" });
+
+  const members = parseGroupMembers(req.body?.members);
+  if (!members.length)
+    return res.status(400).json({ error: "Select at least 1 member" });
+
+  let category = String(req.body?.category ?? "").trim();
+  category = category ? normalizeCategory(category) : null;
+
+  try {
+    const distinct = await distinctCategoriesForKeys(members.map((m) => m.key));
+    if (!category && distinct.length === 1) category = distinct[0];
+    if (!category && distinct.length > 1) {
+      return res
+        .status(400)
+        .json({ error: "category_required", categories: distinct });
+    }
+
+    const tx = new sql.Transaction(pool);
+    await tx.begin();
+
+    await new sql.Request(tx)
+      .input("ID", sql.Int, id)
+      .input("Name", sql.NVarChar(255), name)
+      .input("Category", sql.NVarChar(100), category).query(`
+        UPDATE dbo.Groups
+        SET Name = @Name,
+            Category = @Category,
+            UpdatedAt = SYSUTCDATETIME()
+        WHERE GroupID = @ID;
+      `);
+
+    await new sql.Request(tx)
+      .input("ID", sql.Int, id)
+      .query(`DELETE FROM dbo.GroupMembers WHERE GroupID = @ID;`);
+
+    for (const mem of members) {
+      await new sql.Request(tx)
+        .input("GroupID", sql.Int, id)
+        .input("MemberKey", sql.NVarChar(512), mem.key)
+        .input("MemberPAN", sql.NVarChar(20), mem.pan || null)
+        .input("MemberName", sql.NVarChar(255), mem.name || null).query(`
+          INSERT INTO dbo.GroupMembers (GroupID, MemberKey, MemberPAN, MemberName)
+          VALUES (@GroupID, @MemberKey, @MemberPAN, @MemberName);
+        `);
+    }
+
+    await tx.commit();
+    return res.json({ ok: true });
+  } catch (e) {
+    if (e?.number === 2627 || e?.number === 2601) {
+      return res.status(409).json({ error: "duplicate_name" });
+    }
+    console.error("PUT /api/groups/:id error:", e);
+    return res.status(500).json({ error: e?.message || String(e) });
+  }
+});
+
+app.delete("/api/groups/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id))
+    return res.status(400).json({ error: "Invalid group id" });
+
+  try {
+    await pool.request().input("ID", sql.Int, id).query(`
+      DELETE FROM dbo.Groups WHERE GroupID = @ID;
+    `);
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error("DELETE /api/groups/:id error:", e);
+    return res.status(500).json({ error: e?.message || String(e) });
+  }
 });
 
 /* ------------------------------------------------------------------ */

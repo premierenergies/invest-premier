@@ -1,5 +1,5 @@
 // src/components/MonthlyDataTable.tsx
-import React, { useMemo, useState, type ReactNode } from "react";
+import React, { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   HoverCard,
   HoverCardContent,
@@ -23,7 +23,6 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { getMonthDisplayLabels } from "@/utils/csvUtils";
 import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
@@ -44,6 +43,69 @@ type TimeRangeKey =
   | "thisQuarter"
   | "lastQuarter"
   | "allTime";
+
+/* ──────────────────────────────────────────────────────────────────
+   API base (same pattern as GroupsTab)  |  CMD+F: GROUPS_TABLE_API_BASE
+   ────────────────────────────────────────────────────────────────── */
+function apiBase(): string {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl) return envUrl.endsWith("/") ? envUrl.slice(0, -1) : envUrl;
+  if (import.meta.env.DEV) return "http://localhost:5000";
+  return window.location.origin;
+}
+const API = `${apiBase()}/api`;
+
+/* ──────────────────────────────────────────────────────────────────
+   Group types (matches /api/groups response)  |  CMD+F: GROUPS_TABLE_TYPES
+   ────────────────────────────────────────────────────────────────── */
+type GroupMember = { key: string; pan?: string | null; name?: string | null };
+type GroupRow = {
+  id: number;
+  name: string;
+  category: string | null;
+  memberCount: number;
+  members: GroupMember[];
+};
+
+/* ──────────────────────────────────────────────────────────────────
+   Key helpers (match GroupsTab logic)  |  CMD+F: GROUPS_TABLE_KEYS
+   ────────────────────────────────────────────────────────────────── */
+function normPan(v?: string | null) {
+  const s = String(v ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "");
+  return s || null;
+}
+function normNameKey(v?: string | null) {
+  return String(v ?? "")
+    .trim()
+    .toLowerCase();
+}
+function looksLikePan(v?: string | null) {
+  const s = normPan(v);
+  if (!s) return false;
+  return (
+    /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(s) ||
+    (s.length === 10 && /^[A-Z0-9]+$/.test(s))
+  );
+}
+function entityKeyFromInvestor(inv: MonthlyInvestorData) {
+  const p = normPan((inv as any).pan ?? null);
+  return p || String(inv.name ?? "").trim();
+}
+function normalizeMaybePanKey(v: any) {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  const up = s.toUpperCase().replace(/\s+/g, "");
+  if (
+    /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(up) ||
+    (up.length === 10 && /^[A-Z0-9]+$/.test(up))
+  ) {
+    return up;
+  }
+  return s;
+}
 
 /* ──────────────────────────────────────────────────────────────────
    Date range helpers
@@ -92,20 +154,22 @@ function findLastKeyOnOrBefore(
   }
   return undefined;
 }
-// Helper: display category; for groups without a category, pick the member
-// with the largest holding at the latest month available for the group.
+
+/* ──────────────────────────────────────────────────────────────────
+   Category display helper
+   ────────────────────────────────────────────────────────────────── */
 function getCategoryDisplay(inv: MonthlyInvestorData): string {
   const direct = (inv.category ?? "").trim();
   if (direct) return direct;
 
-  const members = inv.individualInvestors ?? [];
+  const members = (inv as any).individualInvestors ?? [];
   if (!members.length) return "—";
 
   const monthKeys = Object.keys(inv.monthlyShares || {}).sort();
   const latestKey = monthKeys[monthKeys.length - 1];
   if (!latestKey) {
     const firstCat =
-      members.map((m) => (m.category ?? "").trim()).find(Boolean) || "";
+      members.map((m: any) => (m.category ?? "").trim()).find(Boolean) || "";
     return firstCat || "—";
   }
 
@@ -120,8 +184,9 @@ function getCategoryDisplay(inv: MonthlyInvestorData): string {
   }
   return bestCat || "—";
 }
+
 /* ──────────────────────────────────────────────────────────────────
-   Display helpers for group label
+   Display helpers for group label (kept)
    ────────────────────────────────────────────────────────────────── */
 function longestCommonPrefixCase(names: string[]): string {
   if (!names || names.length === 0) return "";
@@ -139,20 +204,20 @@ function longestCommonPrefixCase(names: string[]): string {
     prefix = prefix.slice(0, i);
     if (!prefix) break;
   }
-  // clean trailing punctuation/spaces like " -", "," etc.
   return prefix.replace(/[\s-,:;]+$/, "").trim();
 }
-
 function getDisplayName(inv: MonthlyInvestorData): string {
-  const members = inv.individualInvestors;
+  const members = (inv as any).individualInvestors;
   if (members && members.length > 1) {
-    const lcp = longestCommonPrefixCase(members.map((m) => m.name || ""));
-    // Use LCP if it looks meaningfully longer than the short fundGroup key
-    if (lcp && lcp.length >= Math.max(12, inv.fundGroup?.length || 0)) {
+    const lcp = longestCommonPrefixCase(members.map((m: any) => m.name || ""));
+    if (
+      lcp &&
+      lcp.length >= Math.max(12, (inv as any).fundGroup?.length || 0)
+    ) {
       return lcp;
     }
   }
-  return inv.name; // fallback to whatever the object carries
+  return inv.name;
 }
 
 export default function MonthlyDataTable({
@@ -174,30 +239,68 @@ export default function MonthlyDataTable({
   const [oldestFirst, setOldestFirst] = useState(true);
 
   /* ────────────────────────────────────────────────────────────────
-     Derived lists
+     Groups → fetch and local expand/collapse  |  CMD+F: GROUPS_TABLE_FETCH
      ──────────────────────────────────────────────────────────────── */
+  const [groups, setGroups] = useState<GroupRow[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(false);
 
-  // IMPORTANT: derive months from actual dataset keys (prevents phantom columns)
-  // IMPORTANT: derive months from actual dataset keys (prevents phantom columns)
+  // Split/Rejoin = expand/collapse members under the group row (UI only)
+  const [expandedGroupIds, setExpandedGroupIds] = useState<
+    Record<number, boolean>
+  >({});
+  const toggleExpanded = (groupId: number) => {
+    setExpandedGroupIds((prev) => ({ ...prev, [groupId]: !prev[groupId] }));
+  };
+
+  // Breakdown dialog target (Eye icon)
+  const [breakdownTarget, setBreakdownTarget] =
+    useState<MonthlyInvestorData | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setGroupsLoading(true);
+      try {
+        const r = await fetch(`${API}/groups`, { credentials: "include" });
+        if (!r.ok) throw new Error(`GET /api/groups failed (${r.status})`);
+        const j = (await r.json()) as GroupRow[];
+        if (!alive) return;
+        setGroups(Array.isArray(j) ? j : []);
+      } catch (e) {
+        console.warn("groups fetch failed (table grouping disabled):", e);
+        if (!alive) return;
+        setGroups([]);
+      } finally {
+        if (!alive) return;
+        setGroupsLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  /* ────────────────────────────────────────────────────────────────
+     Derived months (from raw dataset keys)
+   ──────────────────────────────────────────────────────────────── */
   const monthsAsc = useMemo(() => {
     const s = new Set<string>();
 
     for (const inv of data || []) {
       Object.keys(inv.monthlyShares || {}).forEach((k) => s.add(k));
 
-      for (const ind of inv.individualInvestors || []) {
+      for (const ind of (inv as any).individualInvestors || []) {
         Object.keys(ind.monthlyShares || {}).forEach((k) => s.add(k));
       }
     }
 
-    const all = Array.from(s).sort(); // ISO yyyy-mm-dd sorts correctly
+    const all = Array.from(s).sort();
 
-    // ✅ Drop "phantom" months: months where nobody has a non-zero value
     const hasAnyNonZero = (k: string) => {
       for (const inv of data || []) {
         if ((inv.monthlyShares?.[k] || 0) !== 0) return true;
 
-        for (const ind of inv.individualInvestors || []) {
+        for (const ind of (inv as any).individualInvestors || []) {
           if ((ind.monthlyShares?.[k] || 0) !== 0) return true;
         }
       }
@@ -211,62 +314,179 @@ export default function MonthlyDataTable({
   const latestIso = hasMonths ? monthsAsc[monthsAsc.length - 1] : undefined;
   const latestDate = latestIso ? new Date(latestIso) : undefined;
 
-  // Only display columns from IPO date onward (inclusive), in ASC
   const monthsDisplayAsc = useMemo(
     () => monthsAsc.filter((k) => k >= IPO_START_ISO),
     [monthsAsc]
   );
 
-  // Final order for the table header/body (default IPO→Latest)
   const monthsForDisplay = useMemo(
     () =>
       oldestFirst ? [...monthsDisplayAsc] : [...monthsDisplayAsc].reverse(),
     [monthsDisplayAsc, oldestFirst]
   );
 
-  // Labels follow the display order
   const displayLabels = useMemo(
     () => getMonthDisplayLabels(monthsForDisplay),
     [monthsForDisplay]
   );
 
   /* ────────────────────────────────────────────────────────────────
-     Filtering / sorting
-       const displayLabels = useMemo(
-    () => getMonthDisplayLabels(availableMonths),
-    [availableMonths]
-  );
+     Build grouped rows for table  |  CMD+F: GROUPS_TABLE_BUILD
+     ──────────────────────────────────────────────────────────────── */
+  const groupedData: (MonthlyInvestorData & { groupId?: number })[] =
+    useMemo(() => {
+      const base = Array.isArray(data) ? data : [];
+
+      if (!groups || groups.length === 0) return base as any;
+
+      // Index base investors by PAN and by normalized name for matching
+      const byPan = new Map<string, MonthlyInvestorData>();
+      const byName = new Map<string, MonthlyInvestorData>();
+
+      for (const inv of base) {
+        const p = normPan((inv as any).pan ?? null);
+        if (p) byPan.set(p, inv);
+        const nk = normNameKey(inv.name);
+        if (nk) byName.set(nk, inv);
+      }
+
+      const findInvestorForMember = (m: GroupMember): MonthlyInvestorData => {
+        const keyRaw = normalizeMaybePanKey(m.key);
+        const pan = normPan(m.pan ?? null);
+        const name = String(m.name ?? "").trim();
+
+        const keyLooksPan = looksLikePan(keyRaw) || looksLikePan(pan);
+        if (keyLooksPan) {
+          const p = normPan(keyRaw) || pan;
+          const hit = p ? byPan.get(p) : undefined;
+          if (hit) return hit;
+        }
+
+        // Try match by exact key (as name), then by m.name
+        const hit1 = byName.get(normNameKey(keyRaw));
+        if (hit1) return hit1;
+
+        const hit2 = name ? byName.get(normNameKey(name)) : undefined;
+        if (hit2) return hit2;
+
+        // Fallback: minimal "empty" investor so UI still renders member list
+        const fallback: MonthlyInvestorData = {
+          pan: pan || (keyLooksPan ? normPan(keyRaw) : null),
+          name: name || String(m.key ?? "").trim() || keyRaw || "Unknown",
+          category: null,
+          description: "",
+          fundGroup: "",
+          monthlyShares: {},
+        } as any;
+
+        return fallback;
+      };
+
+      // Track member keys so we can hide them as individual rows (avoid double count)
+      const memberKeySet = new Set<string>();
+
+      // Build group rows
+      const groupRows: (MonthlyInvestorData & { groupId?: number })[] = [];
+
+      for (const g of groups) {
+        const members = Array.isArray(g.members) ? g.members : [];
+        if (members.length === 0) continue;
+
+        const memberInvestors = members.map(findInvestorForMember);
+
+        // Sum monthly shares across members
+        const summed: Record<string, number> = {};
+        for (const mi of memberInvestors) {
+          for (const [k, v] of Object.entries(mi.monthlyShares || {})) {
+            summed[k] = (summed[k] || 0) + Number(v || 0);
+          }
+        }
+
+        // Mark membership (both PAN key + name key)
+        for (const mi of memberInvestors) {
+          const p = normPan((mi as any).pan ?? null);
+          if (p) memberKeySet.add(p);
+          const nk = normNameKey(mi.name);
+          if (nk) memberKeySet.add(nk);
+        }
+
+        const row: MonthlyInvestorData & { groupId?: number } = {
+          pan: null,
+          name: g.name,
+          category: g.category ?? null,
+          description: "",
+          fundGroup: g.name,
+          monthlyShares: summed,
+          individualInvestors: memberInvestors,
+          groupId: g.id,
+        } as any;
+
+        groupRows.push(row);
+      }
+
+      // Keep only investors that are NOT part of any group (by PAN or name)
+      const ungrouped = base.filter((inv) => {
+        const p = normPan((inv as any).pan ?? null);
+        if (p && memberKeySet.has(p)) return false;
+        const nk = normNameKey(inv.name);
+        if (nk && memberKeySet.has(nk)) return false;
+        return true;
+      });
+
+      return [...groupRows, ...ungrouped];
+    }, [data, groups]);
+
+  /* ────────────────────────────────────────────────────────────────
+     Filtering / sorting (now uses groupedData)
      ──────────────────────────────────────────────────────────────── */
   const filteredBase = useMemo(() => {
-    return data.filter((investor) => {
-      // Pre-filter: at least one month has >20k
+    return groupedData.filter((investor) => {
       if (monthsAsc.length === 0) return false;
 
+      // Pre-filter: at least one month has >20k (group totals will qualify too)
       const maxShares = Math.max(
         ...monthsAsc.map((m) => investor.monthlyShares[m] || 0)
       );
       if (maxShares <= 20000) return false;
 
+      const isGroup =
+        (investor as any).groupId != null &&
+        Array.isArray((investor as any).individualInvestors) &&
+        ((investor as any).individualInvestors?.length || 0) > 0;
+
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
-        // CMD+F: const nameMatch = investor.name.toLowerCase().includes(q);
+
         const nameMatch = investor.name.toLowerCase().includes(q);
         const descMatch = investor.description
           ? investor.description.toLowerCase().includes(q)
           : false;
-        const panMatch = (investor.pan || "").toLowerCase().includes(q);
+        const panMatch = ((investor as any).pan || "")
+          .toLowerCase()
+          .includes(q);
 
-        if (!nameMatch && !descMatch && !panMatch) return false;
+        // For groups: also match against member names/pans so search "finds" a member
+        let memberMatch = false;
+        if (isGroup) {
+          for (const m of (investor as any).individualInvestors || []) {
+            const mn = String(m?.name || "").toLowerCase();
+            const mp = String(m?.pan || "").toLowerCase();
+            if (mn.includes(q) || mp.includes(q)) {
+              memberMatch = true;
+              break;
+            }
+          }
+        }
+
+        if (!nameMatch && !descMatch && !panMatch && !memberMatch) return false;
       }
 
-      if (
-        selectedCategory !== "all" &&
-        investor.category !== selectedCategory
-      ) {
-        return false;
+      if (selectedCategory !== "all") {
+        const cat = getCategoryDisplay(investor);
+        if (cat !== selectedCategory) return false;
       }
 
-      const latestMonth = latestIso; // from derived monthsAsc
+      const latestMonth = latestIso;
       const latestShares = latestMonth
         ? investor.monthlyShares[latestMonth] || 0
         : 0;
@@ -279,7 +499,7 @@ export default function MonthlyDataTable({
       return true;
     });
   }, [
-    data,
+    groupedData,
     monthsAsc,
     latestIso,
     searchQuery,
@@ -297,8 +517,8 @@ export default function MonthlyDataTable({
         av = a.name;
         bv = b.name;
       } else if (sortBy === "category") {
-        av = a.category;
-        bv = b.category;
+        av = getCategoryDisplay(a);
+        bv = getCategoryDisplay(b);
       } else if (monthsAsc.includes(sortBy)) {
         av = a.monthlyShares[sortBy] || 0;
         bv = b.monthlyShares[sortBy] || 0;
@@ -316,7 +536,6 @@ export default function MonthlyDataTable({
       return { startKey: undefined, endKey: undefined };
 
     let start: Date;
-
     let end: Date;
 
     switch (timeRange) {
@@ -363,15 +582,28 @@ export default function MonthlyDataTable({
 
     const delta = new Map<string, number>();
     for (const inv of baselineSorted) {
+      const rowKey =
+        (inv as any).groupId != null
+          ? `group:${(inv as any).groupId}`
+          : inv.pan || inv.name;
       const s = inv.monthlyShares[startKey] || 0;
       const e = inv.monthlyShares[endKey] || 0;
-      delta.set(inv.name, e - s);
+      delta.set(rowKey, e - s);
     }
 
     const arr = [...baselineSorted];
     arr.sort((a, b) => {
-      const da = delta.get(a.name) ?? 0;
-      const db = delta.get(b.name) ?? 0;
+      const ka =
+        (a as any).groupId != null
+          ? `group:${(a as any).groupId}`
+          : a.pan || a.name;
+      const kb =
+        (b as any).groupId != null
+          ? `group:${(b as any).groupId}`
+          : b.pan || b.name;
+
+      const da = delta.get(ka) ?? 0;
+      const db = delta.get(kb) ?? 0;
       return rankingMode === "buyers" ? db - da : da - db;
     });
     return arr;
@@ -392,12 +624,8 @@ export default function MonthlyDataTable({
     );
 
   /* ────────────────────────────────────────────────────────────────
-     Coloring helpers
-     ──────────────────────────────────────────────────────────────── */
-  /* ────────────────────────────────────────────────────────────────
-   Coloring helpers  (shared by legend & table)
+   Coloring helpers
    ──────────────────────────────────────────────────────────────── */
-  // Buckets are inclusive upper-bounds for |Δshares| → opacity step
   const GRADIENT_THRESHOLDS = [50_000, 100_000, 200_000, 500_000] as const;
   const OPACITY_STEPS = [0.2, 0.4, 0.6, 0.8, 1.0] as const;
 
@@ -416,8 +644,6 @@ export default function MonthlyDataTable({
     const currentMonth = monthsForDisplay[monthIndex];
     const current = investor.monthlyShares[currentMonth] || 0;
 
-    // First visible column: no previous month to compare.
-    // Keep previous behavior: if zero, no color; else blue.
     if (monthIndex === 0) {
       if (current === 0) return "";
       const op = getGradientIntensity(0);
@@ -427,15 +653,14 @@ export default function MonthlyDataTable({
     const prevMonth = monthsForDisplay[monthIndex - 1];
     const prev = investor.monthlyShares[prevMonth] || 0;
 
-    // Preserve your old "don't color zeros" behavior ONLY for 0 → 0
     if (current === 0 && prev === 0) return "";
 
     const delta = current - prev;
     const op = getGradientIntensity(Math.abs(delta));
 
-    if (delta > 0) return `rgba(34, 197, 94, ${op})`; // green (bought)
-    if (delta < 0) return `rgba(239, 68, 68, ${op})`; // red (sold)
-    return `rgba(59, 130, 246, ${op})`; // blue (no change)
+    if (delta > 0) return `rgba(34, 197, 94, ${op})`;
+    if (delta < 0) return `rgba(239, 68, 68, ${op})`;
+    return `rgba(59, 130, 246, ${op})`;
   };
 
   /* ────────────────────────────────────────────────────────────────
@@ -443,15 +668,15 @@ export default function MonthlyDataTable({
      ──────────────────────────────────────────────────────────────── */
   const colWidths = useMemo(() => {
     return {
-      name: "250px", // was 240
-      category: "120px", // was 140
-      month: "96px", // was 110
+      name: "250px",
+      category: "120px",
+      month: "96px",
     };
   }, []);
 
-  // ────────────────────────────────────────────────────────────────
-  // Hover card: show clubbed entity names neatly on hover
-  // ────────────────────────────────────────────────────────────────
+  /* ────────────────────────────────────────────────────────────────
+     Hover card: show group members neatly on hover
+     ──────────────────────────────────────────────────────────────── */
   function EntitiesHover({
     investor,
     trigger,
@@ -460,7 +685,8 @@ export default function MonthlyDataTable({
     trigger: ReactNode;
   }) {
     const hasGroup =
-      !!investor.individualInvestors && investor.individualInvestors.length > 1;
+      !!(investor as any).individualInvestors &&
+      (investor as any).individualInvestors.length > 1;
 
     const latestKey = monthsAsc[monthsAsc.length - 1];
     const latestLabel = latestKey
@@ -487,50 +713,50 @@ export default function MonthlyDataTable({
                     {investor.name}
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {investor.individualInvestors!.length} entities
+                    {(investor as any).individualInvestors!.length} entities
                     {latestLabel ? ` • as of ${latestLabel}` : ""}
                   </div>
                 </div>
 
                 <div className="max-h-64 overflow-auto divide-y">
-                  {investor.individualInvestors!.map((ind, i) => {
-                    const latestVal = latestKey
-                      ? ind.monthlyShares[latestKey] || 0
-                      : 0;
-                    return (
-                      <div
-                        key={i}
-                        className="flex items-center gap-2 px-3 py-2"
-                      >
-                        <span className="w-6 text-xs text-muted-foreground tabular-nums">
-                          {i + 1}.
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <div
-                            className="text-sm font-medium break-words"
-                            title={ind.name}
-                          >
-                            {ind.name}
+                  {(investor as any).individualInvestors!.map(
+                    (ind: any, i: number) => {
+                      const latestVal = latestKey
+                        ? ind.monthlyShares[latestKey] || 0
+                        : 0;
+                      return (
+                        <div
+                          key={i}
+                          className="flex items-center gap-2 px-3 py-2"
+                        >
+                          <span className="w-6 text-xs text-muted-foreground tabular-nums">
+                            {i + 1}.
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <div
+                              className="text-sm font-medium break-words"
+                              title={ind.name}
+                            >
+                              {ind.name}
+                            </div>
+                            <div className="text-[11px] text-muted-foreground">
+                              {ind.category || "—"}
+                            </div>
                           </div>
-                          <div className="text-[11px] text-muted-foreground">
-                            {ind.category || "—"}
+                          <div className="text-sm tabular-nums">
+                            {latestVal.toLocaleString()}
                           </div>
                         </div>
-                        <div className="text-sm tabular-nums">
-                          {latestVal.toLocaleString()}
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    }
+                  )}
                 </div>
 
                 <div className="px-3 py-1.5 text-[11px] text-muted-foreground bg-muted/30">
-                  Tip: Click the eye icon to open the full breakdown with all
-                  months.
+                  Tip: Click the eye icon to open full month-by-month breakdown.
                 </div>
               </>
             ) : (
-              // Minimal card for single entities: full name + category (+ latest value)
               <div className="px-3 py-2">
                 <div className="text-sm font-semibold break-words whitespace-normal">
                   {investor.name}
@@ -559,12 +785,10 @@ export default function MonthlyDataTable({
   return (
     <div className="space-y-4">
       {/* Legend */}
-      {/* Legend */}
       <div className="flex flex-col gap-3 p-4 bg-gray-50 rounded-lg">
         <div className="text-sm font-medium">Legend</div>
 
         <div className="flex flex-col sm:flex-row gap-4 sm:items-center">
-          {/* Green scale (Bought / Δ > 0) */}
           <div className="flex items-center gap-2">
             <span className="text-xs w-20 sm:w-auto">Bought</span>
             {OPACITY_STEPS.map((op, i) => (
@@ -590,7 +814,6 @@ export default function MonthlyDataTable({
             </span>
           </div>
 
-          {/* Red scale (Sold / Δ < 0) */}
           <div className="flex items-center gap-2">
             <span className="text-xs w-20 sm:w-auto">Sold</span>
             {OPACITY_STEPS.map((op, i) => (
@@ -613,7 +836,6 @@ export default function MonthlyDataTable({
             ))}
           </div>
 
-          {/* Blue note */}
           <div className="flex items-center gap-2">
             <Badge className="bg-blue-100 text-blue-800">Blue</Badge>
             <span className="text-xs text-muted-foreground">
@@ -633,7 +855,7 @@ export default function MonthlyDataTable({
       <div className="flex flex-wrap gap-4 items-center">
         <div className="flex gap-2">
           <Input
-            placeholder="Search investors..."
+            placeholder="Search investors / groups..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-64"
@@ -702,6 +924,7 @@ export default function MonthlyDataTable({
             </SelectContent>
           </Select>
         </div>
+
         <Button
           variant="outline"
           onClick={() => setOldestFirst((v) => !v)}
@@ -715,7 +938,8 @@ export default function MonthlyDataTable({
       </div>
 
       <div className="text-sm text-muted-foreground">
-        Showing {sortedData.length} investors with &gt;20,000 shares
+        Showing {sortedData.length} rows with &gt;20,000 shares
+        {groupsLoading ? <span className="ml-2">• loading groups…</span> : null}
         {rankingMode !== "none" && startKey && endKey ? (
           <span className="ml-2">
             — ranked by{" "}
@@ -745,7 +969,6 @@ export default function MonthlyDataTable({
             {oldestFirst ? "IPO → Latest" : "Latest → IPO"}
           </caption>
 
-          {/* Fixed column widths to keep header/body aligned */}
           <colgroup>
             <col style={{ width: colWidths.name }} />
             <col style={{ width: colWidths.category }} />
@@ -795,64 +1018,333 @@ export default function MonthlyDataTable({
                 </td>
               </tr>
             ) : (
-              sortedData.map((inv) => {
+              sortedData.map((inv, idx) => {
+                const groupId = (inv as any).groupId as number | undefined;
                 const isGroup =
-                  !!inv.individualInvestors &&
-                  inv.individualInvestors.length > 1;
-                const label =
-                  inv.individualInvestors && inv.individualInvestors.length > 1
-                    ? getDisplayName(inv) // use LCP/group label only for true clubs
-                    : inv.name; // always full name for non-clubbed
-                // always show full name in the cell
-                // full name if not clubbed
+                  groupId != null &&
+                  Array.isArray((inv as any).individualInvestors) &&
+                  ((inv as any).individualInvestors?.length || 0) > 0;
+
+                const expanded = !!(
+                  groupId != null && expandedGroupIds[groupId]
+                );
+
+                const rowKey = isGroup
+                  ? `group:${groupId}`
+                  : inv.pan || inv.name || String(idx);
+
+                const members: MonthlyInvestorData[] = isGroup
+                  ? ((inv as any).individualInvestors as MonthlyInvestorData[])
+                  : [];
 
                 return (
-                  <tr key={inv.pan || inv.name}>
-                    <th
-                      scope="row"
-                      className="sticky left-0 z-30 bg-white px-3 py-2 text-left border border-gray-200 font-medium"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <span
-                          title={inv.name}
-                          className="whitespace-normal break-words"
-                        >
-                          {inv.name}
-                        </span>
-                        {inv.pan ? (
-                          <div className="text-[11px] text-muted-foreground mt-0.5">
-                            PAN: {inv.pan}
-                          </div>
-                        ) : null}
-                      </div>
-                    </th>
-
-                    <td className="px-4 py-2 border border-gray-200 min-w-[120px]">
-                      <Badge variant="outline">{getCategoryDisplay(inv)}</Badge>
-                    </td>
-
-                    {monthsForDisplay.map((month, index) => (
-                      <td
-                        key={month}
-                        className="px-4 py-2 border border-gray-200 text-right min-w-[96px]"
-                        style={{
-                          backgroundColor: getCellColorWithGradient(inv, index),
-                          color:
-                            (inv.monthlyShares[month] || 0) > 0
-                              ? "rgba(0,0,0,0.85)"
-                              : "inherit",
-                        }}
+                  <React.Fragment key={rowKey}>
+                    <tr>
+                      <th
+                        scope="row"
+                        className="sticky left-0 z-30 bg-white px-3 py-2 text-left border border-gray-200 font-medium"
                       >
-                        {(inv.monthlyShares[month] || 0).toLocaleString()}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <EntitiesHover
+                              investor={inv}
+                              trigger={
+                                <div className="min-w-0">
+                                  <div className="whitespace-normal break-words">
+                                    {inv.name}
+                                  </div>
+                                  {!isGroup && inv.pan ? (
+                                    <div className="text-[11px] text-muted-foreground mt-0.5">
+                                      PAN: {inv.pan}
+                                    </div>
+                                  ) : null}
+                                  {isGroup ? (
+                                    <div className="mt-1 flex flex-wrap gap-2">
+                                      <Badge variant="outline">
+                                        Group • {members.length} members
+                                      </Badge>
+                                      {inv.category ? (
+                                        <Badge variant="outline">
+                                          {inv.category}
+                                        </Badge>
+                                      ) : null}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              }
+                            />
+                          </div>
+
+                          {isGroup ? (
+                            <div className="shrink-0 flex items-center gap-1">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                title="View individuals + holdings"
+                                onClick={() => setBreakdownTarget(inv)}
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 px-2 text-xs"
+                                title={
+                                  expanded
+                                    ? "Rejoin group (collapse)"
+                                    : "Split group (expand)"
+                                }
+                                onClick={() => toggleExpanded(groupId!)}
+                              >
+                                {expanded ? "Rejoin" : "Split"}
+                              </Button>
+                            </div>
+                          ) : null}
+                        </div>
+                      </th>
+
+                      <td className="px-4 py-2 border border-gray-200 min-w-[120px]">
+                        <Badge variant="outline">
+                          {getCategoryDisplay(inv)}
+                        </Badge>
                       </td>
-                    ))}
-                  </tr>
+
+                      {monthsForDisplay.map((month, index) => (
+                        <td
+                          key={month}
+                          className="px-4 py-2 border border-gray-200 text-right min-w-[96px]"
+                          style={{
+                            backgroundColor: getCellColorWithGradient(
+                              inv,
+                              index
+                            ),
+                            color:
+                              (inv.monthlyShares[month] || 0) > 0
+                                ? "rgba(0,0,0,0.85)"
+                                : "inherit",
+                          }}
+                        >
+                          {(inv.monthlyShares[month] || 0).toLocaleString()}
+                        </td>
+                      ))}
+                    </tr>
+
+                    {/* Expanded member rows under group (Split/Rejoin) */}
+                    {isGroup && expanded
+                      ? members.map((m, mi) => {
+                          const mk = entityKeyFromInvestor(m);
+                          const memberRowKey = `${rowKey}:m:${mk}:${mi}`;
+
+                          return (
+                            <tr key={memberRowKey} className="bg-muted/30">
+                              <th
+                                scope="row"
+                                className="sticky left-0 z-20 bg-muted/30 px-3 py-2 text-left border border-gray-200 font-normal"
+                              >
+                                <div className="pl-3">
+                                  <div className="text-sm whitespace-normal break-words">
+                                    <span className="text-muted-foreground mr-1">
+                                      ↳
+                                    </span>
+                                    {m.name}
+                                  </div>
+                                  {m.pan ? (
+                                    <div className="text-[11px] text-muted-foreground mt-0.5">
+                                      PAN: {m.pan}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              </th>
+
+                              <td className="px-4 py-2 border border-gray-200 min-w-[120px]">
+                                <Badge variant="outline">
+                                  {getCategoryDisplay(m)}
+                                </Badge>
+                              </td>
+
+                              {monthsForDisplay.map((month, index) => (
+                                <td
+                                  key={month}
+                                  className="px-4 py-2 border border-gray-200 text-right min-w-[96px]"
+                                  style={{
+                                    backgroundColor: getCellColorWithGradient(
+                                      m,
+                                      index
+                                    ),
+                                    color:
+                                      (m.monthlyShares[month] || 0) > 0
+                                        ? "rgba(0,0,0,0.85)"
+                                        : "inherit",
+                                  }}
+                                >
+                                  {(
+                                    m.monthlyShares[month] || 0
+                                  ).toLocaleString()}
+                                </td>
+                              ))}
+                            </tr>
+                          );
+                        })
+                      : null}
+                  </React.Fragment>
                 );
               })
             )}
           </tbody>
         </table>
       </div>
+
+      {/* Eye Breakdown Dialog */}
+      <Dialog
+        open={!!breakdownTarget}
+        onOpenChange={(v) => {
+          if (!v) setBreakdownTarget(null);
+        }}
+      >
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden p-0">
+          <DialogHeader className="px-6 pt-6">
+            <DialogTitle className="flex items-center justify-between gap-3">
+              <span className="min-w-0 truncate">
+                {breakdownTarget?.name || "Group Breakdown"}
+              </span>
+              {breakdownTarget && (breakdownTarget as any).groupId != null ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    toggleExpanded((breakdownTarget as any).groupId)
+                  }
+                >
+                  {expandedGroupIds[(breakdownTarget as any).groupId]
+                    ? "Rejoin"
+                    : "Split"}
+                </Button>
+              ) : null}
+            </DialogTitle>
+
+            <DialogDescription className="px-6 pb-3">
+              {(breakdownTarget as any)?.individualInvestors?.length
+                ? `${
+                    (breakdownTarget as any).individualInvestors.length
+                  } individuals • totals are summed as the group row`
+                : "No individuals found for this group."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="px-6 pb-6 overflow-auto min-h-0">
+            {breakdownTarget &&
+            Array.isArray((breakdownTarget as any).individualInvestors) ? (
+              <div className="rounded-lg border overflow-auto max-h-[70vh]">
+                <table className="min-w-[900px] w-full table-fixed border-separate border-spacing-0">
+                  <colgroup>
+                    <col style={{ width: "320px" }} />
+                    <col style={{ width: "140px" }} />
+                    {monthsForDisplay.map((_, i) => (
+                      <col key={i} style={{ width: colWidths.month }} />
+                    ))}
+                  </colgroup>
+
+                  <thead>
+                    <tr>
+                      <th className="sticky top-0 left-0 z-40 bg-white px-3 py-2 text-left border border-gray-200">
+                        Individual
+                      </th>
+                      <th className="sticky top-0 z-30 bg-white px-3 py-2 text-left border border-gray-200">
+                        Category
+                      </th>
+                      {displayLabels.map((lbl, i) => (
+                        <th
+                          key={monthsForDisplay[i]}
+                          className="sticky top-0 z-30 bg-white px-3 py-2 text-right border border-gray-200 whitespace-nowrap"
+                        >
+                          {lbl}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {(breakdownTarget as any).individualInvestors.map(
+                      (m: MonthlyInvestorData, i: number) => (
+                        <tr key={`bd:${i}:${m.pan || m.name}`}>
+                          <th className="sticky left-0 z-20 bg-white px-3 py-2 text-left border border-gray-200 font-medium">
+                            <div className="whitespace-normal break-words">
+                              {m.name}
+                            </div>
+                            {m.pan ? (
+                              <div className="text-[11px] text-muted-foreground mt-0.5">
+                                PAN: {m.pan}
+                              </div>
+                            ) : null}
+                          </th>
+                          <td className="px-3 py-2 border border-gray-200">
+                            <Badge variant="outline">
+                              {getCategoryDisplay(m)}
+                            </Badge>
+                          </td>
+                          {monthsForDisplay.map((month, idx2) => (
+                            <td
+                              key={month}
+                              className="px-3 py-2 border border-gray-200 text-right"
+                              style={{
+                                backgroundColor: getCellColorWithGradient(
+                                  m,
+                                  idx2
+                                ),
+                                color:
+                                  (m.monthlyShares[month] || 0) > 0
+                                    ? "rgba(0,0,0,0.85)"
+                                    : "inherit",
+                              }}
+                            >
+                              {(m.monthlyShares[month] || 0).toLocaleString()}
+                            </td>
+                          ))}
+                        </tr>
+                      )
+                    )}
+
+                    {/* Totals row */}
+                    <tr className="bg-muted/40">
+                      <th className="sticky left-0 z-20 bg-muted/40 px-3 py-2 text-left border border-gray-200 font-semibold">
+                        Group Total
+                      </th>
+                      <td className="px-3 py-2 border border-gray-200">
+                        <Badge variant="outline">
+                          {getCategoryDisplay(breakdownTarget)}
+                        </Badge>
+                      </td>
+                      {monthsForDisplay.map((month, idx2) => (
+                        <td
+                          key={month}
+                          className="px-3 py-2 border border-gray-200 text-right font-semibold"
+                          style={{
+                            backgroundColor: getCellColorWithGradient(
+                              breakdownTarget,
+                              idx2
+                            ),
+                          }}
+                        >
+                          {(
+                            breakdownTarget.monthlyShares?.[month] || 0
+                          ).toLocaleString()}
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="px-6 pb-6 text-sm text-muted-foreground">
+                No breakdown available.
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
